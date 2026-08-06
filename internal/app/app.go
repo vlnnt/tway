@@ -101,9 +101,10 @@ func (a *App) Run(
 				ticker := time.NewTicker(
 					a.config.CheckInterval.Duration,
 				)
-				defer ticker.Stop()
 
+				defer ticker.Stop()
 				wasLive := states[channel].IsLive
+
 				for {
 					select {
 					case <-ctx.Done():
@@ -138,7 +139,6 @@ func (a *App) Run(
 								Icon: "",
 								URL:  "https://twitch.tv/" + channel,
 							})
-
 							if err != nil {
 								log.Printf("[%s] Notify failed: %v", channel, err)
 							}
@@ -154,7 +154,6 @@ func (a *App) Run(
 								Icon:    "",
 								URL:     "https://twitch.tv/" + channel,
 							})
-
 							if err != nil {
 								log.Printf("[%s] Notify failed: %v", channel, err)
 							}

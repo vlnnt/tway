@@ -17,15 +17,10 @@ type LinuxNotifier struct {
 func New() (Notifier, error) {
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
-		return nil, fmt.Errorf(
-			"connect to session D-Bus: %w",
-			err,
-		)
+		return nil, fmt.Errorf("connect to session D-Bus: %w", err)
 	}
 
-	return &LinuxNotifier{
-		conn: conn,
-	}, nil
+	return &LinuxNotifier{conn: conn}, nil
 }
 
 func (n *LinuxNotifier) Send(

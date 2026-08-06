@@ -6,45 +6,52 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"tway/internal/app"
 	"tway/internal/config"
 	"tway/internal/notifier"
+	"tway/internal/tray"
 	"tway/internal/twitch"
 )
 
 func main() {
 	log.Println("Starting Tway...")
-
-	if len(os.Args) < 2 {
-		log.Fatal("Usage: tway <config-path>")
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	configPath := os.Args[1]
+	configPath := filepath.Join(
+		filepath.Dir(exePath),
+		"stream.json",
+	)
+
+	if len(os.Args) >= 2 {
+		configPath = os.Args[1]
+	}
 
 	log.Printf("Loading config from %q...", configPath)
-
 	file, err := os.Open(configPath)
 	if err != nil {
 		log.Fatalf("Open config: %v", err)
 	}
 	defer file.Close()
 
-	var cfg config.Config
-
-	if err := json.NewDecoder(file).Decode(&cfg); err != nil {
+	var config config.Config
+	if err := json.NewDecoder(file).Decode(&config); err != nil {
 		log.Fatalf("Decode config: %v", err)
 	}
 
 	log.Printf(
 		"Config loaded: interval=%s, streamers=%d",
-		cfg.CheckInterval.Duration,
-		len(cfg.Streamers),
+		config.CheckInterval.Duration,
+		len(config.Streamers),
 	)
 
 	twitchClient := twitch.NewClient()
-	log.Println("Twitch client initialized")
+	log.Println("Twitch client initialized!")
 
 	notificationService, err := notifier.New()
 	if err != nil {
@@ -52,21 +59,19 @@ func main() {
 	}
 	defer notificationService.Close()
 
-	log.Println("Notifier initialized")
-
+	log.Println("Notifier initialized!")
 	storage := app.NewStateStorage(
 		"state.json",
 	)
 
 	application := app.New(
-		&cfg,
+		&config,
 		twitchClient,
 		notificationService,
 		storage,
 	)
 
-	log.Println("Application initialized")
-
+	log.Println("Application initialized!")
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -74,11 +79,19 @@ func main() {
 	)
 	defer stop()
 
-	log.Println("Application started")
+	go func() {
+		if err := application.Run(ctx); err != nil {
+			log.Printf("Application stopped: %v", err)
+			stop()
+		}
+	}()
 
-	if err := application.Run(ctx); err != nil {
-		log.Fatalf("Application stopped with error: %v", err)
-	}
+	trayApp := tray.New(func() {
+		log.Println("Tray exit requested!")
+		stop()
+	})
 
-	log.Println("Application stopped")
+	log.Println("Tray started!")
+	trayApp.Run()
+	log.Println("Tway stopped!")
 }
