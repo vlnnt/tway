@@ -3,6 +3,7 @@ package twitch
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -30,6 +31,8 @@ func (c *Client) GetStream(
 	if channel == "" {
 		return nil, fmt.Errorf("channel cannot be empty")
 	}
+
+	log.Printf("[TWITCH] Checking channel %q...", channel)
 
 	requestBody := streamMetadataRequest{
 		OperationName: "StreamMetadata",
@@ -63,6 +66,8 @@ func (c *Client) GetStream(
 	request.Header.Set("Accept", "application/json")
 	request.SetBody(body)
 
+	log.Printf("[TWITCH] Sending request to %s", apiURL)
+
 	if err := c.httpClient.DoTimeout(
 		request,
 		response,
@@ -71,7 +76,17 @@ func (c *Client) GetStream(
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 
+	log.Printf(
+		"[TWITCH] HTTP status: %d",
+		response.StatusCode(),
+	)
+
 	if response.StatusCode() != fasthttp.StatusOK {
+		log.Printf(
+			"[TWITCH] Response body: %s",
+			response.Body(),
+		)
+
 		return nil, fmt.Errorf(
 			"twitch returned status %d: %s",
 			response.StatusCode(),
@@ -80,11 +95,17 @@ func (c *Client) GetStream(
 	}
 
 	var result streamMetadataResponse
+
 	if err := json.Unmarshal(response.Body(), &result); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
 	if len(result.Errors) > 0 {
+		log.Printf(
+			"[TWITCH] GraphQL error: %s",
+			result.Errors[0].Message,
+		)
+
 		return nil, fmt.Errorf(
 			"twitch GraphQL error: %s",
 			result.Errors[0].Message,
@@ -92,10 +113,23 @@ func (c *Client) GetStream(
 	}
 
 	if result.Data.User == nil {
-		return nil, fmt.Errorf("channel %q not found", channel)
+		log.Printf(
+			"[TWITCH] Channel %q not found",
+			channel,
+		)
+
+		return nil, fmt.Errorf(
+			"channel %q not found",
+			channel,
+		)
 	}
 
 	if result.Data.User.Stream == nil {
+		log.Printf(
+			"[TWITCH] %q is OFFLINE",
+			channel,
+		)
+
 		return &Stream{
 			Channel: channel,
 			Title:   result.Data.User.LastBroadcast.Title,
@@ -104,10 +138,24 @@ func (c *Client) GetStream(
 	}
 
 	stream := result.Data.User.Stream
-	startedAt, err := time.Parse(time.RFC3339, stream.CreatedAt)
+
+	startedAt, err := time.Parse(
+		time.RFC3339,
+		stream.CreatedAt,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("parse stream start time: %w", err)
+		return nil, fmt.Errorf(
+			"parse stream start time: %w",
+			err,
+		)
 	}
+
+	log.Printf(
+		"[TWITCH] %q is LIVE | Game=%q | Title=%q",
+		channel,
+		stream.Game.Name,
+		result.Data.User.LastBroadcast.Title,
+	)
 
 	return &Stream{
 		ID:        stream.ID,

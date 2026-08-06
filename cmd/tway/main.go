@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+
 	"tway/internal/app"
 	"tway/internal/config"
 	"tway/internal/notifier"
@@ -15,39 +15,57 @@ import (
 )
 
 func main() {
+	log.Println("Starting Tway...")
 
 	if len(os.Args) < 2 {
-		log.Fatal("usage: tway <config-path>")
+		log.Fatal("Usage: tway <config-path>")
 	}
 
 	configPath := os.Args[1]
+
+	log.Printf("Loading config from %q...", configPath)
+
 	file, err := os.Open(configPath)
 	if err != nil {
-		log.Fatalf("open config %q: %v", configPath, err)
+		log.Fatalf("Open config: %v", err)
 	}
 	defer file.Close()
 
-	var config config.Config
-	if err := json.NewDecoder(file).Decode(&config); err != nil {
-		log.Fatalf("decode config %q: %v", configPath, err)
+	var cfg config.Config
+
+	if err := json.NewDecoder(file).Decode(&cfg); err != nil {
+		log.Fatalf("Decode config: %v", err)
 	}
+
+	log.Printf(
+		"Config loaded: interval=%s, streamers=%d",
+		cfg.CheckInterval.Duration,
+		len(cfg.Streamers),
+	)
 
 	twitchClient := twitch.NewClient()
+	log.Println("Twitch client initialized")
+
 	notificationService, err := notifier.New()
 	if err != nil {
-		log.Fatalf("create notifier: %v", err)
+		log.Fatalf("Create notifier: %v", err)
 	}
-	defer func() {
-		if err := notificationService.Close(); err != nil {
-			log.Printf("close notifier: %v", err)
-		}
-	}()
+	defer notificationService.Close()
 
-	application := app.NewApp(
-		&config,
+	log.Println("Notifier initialized")
+
+	storage := app.NewStateStorage(
+		"state.json",
+	)
+
+	application := app.New(
+		&cfg,
 		twitchClient,
 		notificationService,
+		storage,
 	)
+
+	log.Println("Application initialized")
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
@@ -56,7 +74,11 @@ func main() {
 	)
 	defer stop()
 
+	log.Println("Application started")
+
 	if err := application.Run(ctx); err != nil {
-		log.Fatal(fmt.Errorf("run app: %w", err))
+		log.Fatalf("Application stopped with error: %v", err)
 	}
+
+	log.Println("Application stopped")
 }
