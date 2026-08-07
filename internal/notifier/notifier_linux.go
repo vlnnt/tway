@@ -4,23 +4,30 @@ package notifier
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/godbus/dbus/v5"
+	"go.uber.org/zap"
 )
 
 type LinuxNotifier struct {
+	log  *zap.Logger
 	conn *dbus.Conn
 }
 
-func New() (Notifier, error) {
+func New(
+	log *zap.Logger,
+) (Notifier, error) {
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
-		return nil, fmt.Errorf("connect to session D-Bus: %w", err)
+		log.Error("LinuxNotifier.New.ConnectSessionBus", zap.Error(err))
+		return nil, err
 	}
 
-	return &LinuxNotifier{conn: conn}, nil
+	return &LinuxNotifier{
+		conn: conn,
+		log:  log,
+	}, nil
 }
 
 func (n *LinuxNotifier) Send(
@@ -40,7 +47,7 @@ func (n *LinuxNotifier) Send(
 		dbus.Flags(0),
 		"tway",
 		uint32(0),
-		"",
+		"dialog-information",
 		notification.Title,
 		notification.Message,
 		[]string{},
@@ -51,7 +58,8 @@ func (n *LinuxNotifier) Send(
 	)
 
 	if call.Err != nil {
-		return fmt.Errorf("send notification: %w", call.Err)
+		n.log.Error("LinuxNotifier.Send.CallWithContext", zap.Error(call.Err))
+		return call.Err
 	}
 
 	return nil

@@ -3,10 +3,10 @@ package app
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
 	"tway/internal/config"
@@ -15,6 +15,7 @@ import (
 )
 
 type App struct {
+	log      *zap.Logger
 	config   *config.Config
 	twitch   *twitch.Client
 	notifier notifier.Notifier
@@ -22,12 +23,14 @@ type App struct {
 }
 
 func New(
+	log *zap.Logger,
 	cfg *config.Config,
 	twitchClient *twitch.Client,
 	notificationService notifier.Notifier,
 	storage *StateStorage,
 ) *App {
 	return &App{
+		log:      log,
 		config:   cfg,
 		twitch:   twitchClient,
 		notifier: notificationService,
@@ -38,14 +41,15 @@ func New(
 func (a *App) Run(
 	ctx context.Context,
 ) error {
-	log.Println("Checking initial stream states...")
+	a.log.Info("Checking initial stream states ...")
 	states, err := a.storage.Load()
 	if err != nil {
-		return fmt.Errorf("load states: %w", err)
+		a.log.Error("App.Run.Load", zap.Error(err))
+		return err
 	}
 
 	var status strings.Builder
-	status.WriteString("Статус стримеров:\n\n")
+	status.WriteString("Streamers's statuses:\n\n")
 
 	for _, streamer := range a.config.Streamers {
 		if !streamer.Enabled {
@@ -55,7 +59,7 @@ func (a *App) Run(
 		channel := streamer.Channel
 		stream, err := a.twitch.GetStream(channel)
 		if err != nil {
-			log.Printf("[%s] Initial check failed: %v", channel, err)
+			a.log.Error("App.Run.GetStream", zap.Error(err))
 			continue
 		}
 
@@ -73,22 +77,23 @@ func (a *App) Run(
 	}
 
 	if err := a.storage.Save(states); err != nil {
-		log.Printf("Save initial states failed: %v", err)
+		a.log.Error("App.Run.Save", zap.Error(err))
 	}
 
-	if status.Len() > len("Статус стримеров:\n\n") {
+	if status.Len() > len("Streamers's statuses:\n\n") {
 		err := a.notifier.Send(notifier.Notification{
-			Title:   "Twitch Watcher",
+			Title:   "tway",
 			Message: status.String(),
 			Icon:    "",
 		})
 
 		if err != nil {
-			log.Printf("Initial notification failed: %v", err)
+			a.log.Error("App.Run.Send", zap.Error(err))
 		}
 	}
 
-	log.Println("Starting stream watchers...")
+	a.log.Info("App.Run",
+		zap.String("Run", "Starting the stream watchers ..."))
 	group, ctx := errgroup.WithContext(ctx)
 	for _, streamer := range a.config.Streamers {
 		if !streamer.Enabled {
@@ -108,31 +113,33 @@ func (a *App) Run(
 				for {
 					select {
 					case <-ctx.Done():
-						log.Printf("[%s] Watcher stopped", channel)
+						a.log.Info("App.Run.ctx.Done",
+							zap.String("Watcher stopped:", channel))
 						return nil
 
 					case <-ticker.C:
-						log.Printf("[%s] Checking stream...", channel)
+						a.log.Info("App.Run.ticket.C",
+							zap.String("Checking stream ...", channel))
 						stream, err := a.twitch.GetStream(channel)
 						if err != nil {
-							log.Printf("[%s] Twitch check failed: %v", channel, err)
+							a.log.Error("App.Run.GetStream", zap.Error(err))
 							continue
 						}
 
-						log.Printf(
-							"[%s] Live=%t Title=%q Game=%q",
-							channel,
-							stream.IsLive,
-							stream.Title,
-							stream.Game,
+						a.log.Info("State",
+							zap.String("Channel", channel),
+							zap.Bool("Live", stream.IsLive),
+							zap.String("Title", stream.Title),
+							zap.String("Game", stream.Game),
 						)
 
 						if !wasLive && stream.IsLive {
-							log.Printf("[%s] Stream started", channel)
+							a.log.Info("Stream started",
+								zap.String("Channel", channel))
 							err := a.notifier.Send(notifier.Notification{
-								Title: channel + " начал трансляцию",
+								Title: channel + " has started the broadcast",
 								Message: fmt.Sprintf(
-									"%s\nКатегория: %s",
+									"%s\nCategory: %s",
 									stream.Title,
 									stream.Game,
 								),
@@ -140,22 +147,25 @@ func (a *App) Run(
 								URL:  "https://twitch.tv/" + channel,
 							})
 							if err != nil {
-								log.Printf("[%s] Notify failed: %v", channel, err)
+								a.log.Error("Notify failed",
+									zap.String("Channel", channel), zap.Error(err))
 							}
 
 							wasLive = true
 						}
 
 						if wasLive && !stream.IsLive {
-							log.Printf("[%s] Stream ended", channel)
+							a.log.Info("The stream has ended",
+								zap.String("Channel", channel))
 							err := a.notifier.Send(notifier.Notification{
-								Title:   channel + " закончил трансляцию",
-								Message: "Стример вышел из эфира",
+								Title:   channel + " has ended the broadcast",
+								Message: "The streamer has left the broadcast",
 								Icon:    "",
 								URL:     "https://twitch.tv/" + channel,
 							})
 							if err != nil {
-								log.Printf("[%s] Notify failed: %v", channel, err)
+								a.log.Error("Notify failed",
+									zap.String("Channel", channel), zap.Error(err))
 							}
 
 							wasLive = false
@@ -168,7 +178,8 @@ func (a *App) Run(
 						}
 
 						if err := a.storage.Save(states); err != nil {
-							log.Printf("[%s] Save state failed: %v", channel, err)
+							a.log.Error("Save state failed",
+								zap.String("Channel", channel), zap.Error(err))
 						}
 					}
 				}
@@ -176,6 +187,7 @@ func (a *App) Run(
 		}(channel))
 	}
 
-	log.Println("All watchers started!")
+	a.log.Info("App.Run",
+		zap.String("Run", "All the watchers have started!"))
 	return group.Wait()
 }

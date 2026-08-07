@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,13 +13,17 @@ import (
 	"tway/internal/notifier"
 	"tway/internal/tray"
 	"tway/internal/twitch"
+
+	"go.uber.org/zap"
 )
 
 func main() {
-	log.Println("Starting Tway...")
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
+
 	exePath, err := os.Executable()
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("main.os.Executable", zap.Error(err))
 	}
 
 	configPath := filepath.Join(
@@ -32,46 +35,54 @@ func main() {
 		configPath = os.Args[1]
 	}
 
-	log.Printf("Loading config from %q...", configPath)
+	logger.Info("Loading config ...", zap.String("Path", configPath))
 	file, err := os.Open(configPath)
 	if err != nil {
-		log.Fatalf("Open config: %v", err)
+		logger.Error("main.os.Open", zap.Error(err))
 	}
 	defer file.Close()
 
 	var config config.Config
 	if err := json.NewDecoder(file).Decode(&config); err != nil {
-		log.Fatalf("Decode config: %v", err)
+		logger.Error("main.json.NewDecoder.Decode", zap.Error(err))
 	}
 
-	log.Printf(
-		"Config loaded: interval=%s, streamers=%d",
-		config.CheckInterval.Duration,
-		len(config.Streamers),
+	logger.Info("Config has loaded",
+		zap.Duration("Interval", config.CheckInterval.Duration),
+		zap.Int("Streamers", len(config.Streamers)),
 	)
 
-	twitchClient := twitch.NewClient()
-	log.Println("Twitch client initialized!")
+	logger.Info("Initializing twitch client ...")
+	twitchClient := twitch.NewClient(logger)
 
-	notificationService, err := notifier.New()
+	logger.Info("Twitch client initialized!")
+
+	logger.Info("Initializing notifier service ...")
+	notificationService, err := notifier.New(logger)
 	if err != nil {
-		log.Fatalf("Create notifier: %v", err)
+		logger.Error("Create notifier", zap.Error(err))
 	}
 	defer notificationService.Close()
 
-	log.Println("Notifier initialized!")
-	storage := app.NewStateStorage(
-		"state.json",
-	)
+	logger.Info("Notifier service initialized!")
 
+	logger.Info("Initializing state storage ...")
+	storage := app.NewStateStorage("state.json")
+
+	logger.Info("State storage initialized!")
+
+	logger.Info("Initializing application ...")
 	application := app.New(
+		logger,
 		&config,
 		twitchClient,
 		notificationService,
 		storage,
 	)
 
-	log.Println("Application initialized!")
+	logger.Info("Application initialized!")
+
+	logger.Info("Creating notify context ...")
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -79,19 +90,26 @@ func main() {
 	)
 	defer stop()
 
+	logger.Info("Notify context created!")
+
+	logger.Info("Running application ...")
 	go func() {
 		if err := application.Run(ctx); err != nil {
-			log.Printf("Application stopped: %v", err)
+			logger.Error("Application stopped", zap.Error(err))
 			stop()
 		}
 	}()
 
-	trayApp := tray.New(func() {
-		log.Println("Tray exit requested!")
+	logger.Info("Application started!")
+
+	logger.Info("Creating tray ...")
+	trayApp := tray.New(logger, func() {
+		logger.Info("Tray exit event has requested!")
 		stop()
 	})
 
-	log.Println("Tray started!")
+	logger.Info("Tray created!")
+
 	trayApp.Run()
-	log.Println("Tway stopped!")
+	logger.Info("Tway stopped!")
 }

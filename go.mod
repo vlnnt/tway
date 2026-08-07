@@ -7,6 +7,7 @@ require (
 	github.com/go-toast/toast v0.0.0-20190211030409-01e6764cf0a4
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/valyala/fasthttp v1.73.0
+	go.uber.org/zap v1.28.0
 	golang.org/x/sync v0.22.0
 )
 
@@ -23,5 +24,6 @@ require (
 	github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
+	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 )

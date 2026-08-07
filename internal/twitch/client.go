@@ -3,22 +3,26 @@ package twitch
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/valyala/fasthttp"
+	"go.uber.org/zap"
 )
 
 type Client struct {
+	log        *zap.Logger
 	httpClient *fasthttp.Client
 	timeout    time.Duration
 }
 
-func NewClient() *Client {
+func NewClient(
+	log *zap.Logger,
+) *Client {
 	return &Client{
+		log: log,
 		httpClient: &fasthttp.Client{
-			Name: "TwitchWatcher",
+			Name: "tway",
 		},
 		timeout: 10 * time.Second,
 	}
@@ -32,7 +36,7 @@ func (c *Client) GetStream(
 		return nil, fmt.Errorf("channel cannot be empty")
 	}
 
-	log.Printf("[TWITCH] Checking channel %q...", channel)
+	c.log.Info("Checking channel ...", zap.String("Channel", channel))
 	requestBody := streamMetadataRequest{
 		OperationName: "StreamMetadata",
 		Variables: streamMetadataVariables{
@@ -65,7 +69,7 @@ func (c *Client) GetStream(
 	request.Header.Set("Accept", "application/json")
 	request.SetBody(body)
 
-	log.Printf("[TWITCH] Sending request to %s", apiURL)
+	c.log.Info("Sending request", zap.String("URL", apiURL))
 	if err := c.httpClient.DoTimeout(
 		request,
 		response,
@@ -74,9 +78,9 @@ func (c *Client) GetStream(
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 
-	log.Printf("[TWITCH] HTTP status: %d", response.StatusCode())
+	c.log.Info("HTTP Status", zap.Int("Code", response.StatusCode()))
 	if response.StatusCode() != fasthttp.StatusOK {
-		log.Printf("[TWITCH] Response body: %s", response.Body())
+		c.log.Info("Response", zap.ByteString("Body", response.Body()))
 		return nil, fmt.Errorf(
 			"twitch returned status %d: %s",
 			response.StatusCode(),
@@ -90,17 +94,16 @@ func (c *Client) GetStream(
 	}
 
 	if len(result.Errors) > 0 {
-		log.Printf("[TWITCH] GraphQL error: %s", result.Errors[0].Message)
-		return nil, fmt.Errorf("twitch GraphQL error: %s", result.Errors[0].Message)
+		return nil,
+			fmt.Errorf("twitch GraphQL error: %s", result.Errors[0].Message)
 	}
 
 	if result.Data.User == nil {
-		log.Printf("[TWITCH] Channel %q not found", channel)
 		return nil, fmt.Errorf("channel %q not found", channel)
 	}
 
 	if result.Data.User.Stream == nil {
-		log.Printf("[TWITCH] %q is OFFLINE", channel)
+		c.log.Info("Channel is offline", zap.String("Channel", channel))
 		return &Stream{
 			Channel: channel,
 			Title:   result.Data.User.LastBroadcast.Title,
@@ -117,11 +120,11 @@ func (c *Client) GetStream(
 		return nil, fmt.Errorf("parse stream start time: %w", err)
 	}
 
-	log.Printf(
-		"[TWITCH] %q is LIVE | Game=%q | Title=%q",
-		channel,
-		stream.Game.Name,
-		result.Data.User.LastBroadcast.Title,
+	c.log.Info(
+		"LIVE",
+		zap.String("Channel", channel),
+		zap.String("Game", stream.Game.Name),
+		zap.String("Title", result.Data.User.LastBroadcast.Title),
 	)
 
 	return &Stream{

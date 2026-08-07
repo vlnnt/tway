@@ -3,16 +3,20 @@
 package notifier
 
 import (
-	"fmt"
 	"path/filepath"
 
 	"github.com/go-toast/toast"
+	"go.uber.org/zap"
 )
 
-type WindowsNotifier struct{}
+type WindowsNotifier struct {
+	log *zap.Logger
+}
 
-func New() (Notifier, error) {
-	return &WindowsNotifier{}, nil
+func New(
+	log *zap.Logger,
+) (Notifier, error) {
+	return &WindowsNotifier{log: log}, nil
 }
 
 func (wn *WindowsNotifier) Send(
@@ -22,14 +26,15 @@ func (wn *WindowsNotifier) Send(
 	if icon != "" {
 		absoluteIcon, err := filepath.Abs(icon)
 		if err != nil {
-			return fmt.Errorf("resolve notification icon path: %w", err)
+			wn.log.Error("WindowsNotifier.Send.Abs", zap.Error(err))
+			return err
 		}
 
 		icon = absoluteIcon
 	}
 
 	windowsNotification := toast.Notification{
-		AppID:   "Twitch Watcher",
+		AppID:   "tway",
 		Title:   notification.Title,
 		Message: notification.Message,
 		Icon:    icon,
@@ -42,7 +47,8 @@ func (wn *WindowsNotifier) Send(
 	}
 
 	if err := windowsNotification.Push(); err != nil {
-		return fmt.Errorf("send Windows notification: %w", err)
+		wn.log.Error("WindowsNotifier.Send.Push", zap.Error(err))
+		return err
 	}
 
 	return nil
