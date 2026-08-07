@@ -31,6 +31,15 @@ func main() {
 		"stream.json",
 	)
 
+	iconPath := filepath.Join(
+		filepath.Dir(exePath),
+		"twitch.ico",
+	)
+
+	logger.Info("Icon path",
+		zap.String("Path", iconPath),
+	)
+
 	if len(os.Args) >= 2 {
 		configPath = os.Args[1]
 	}
@@ -67,12 +76,16 @@ func main() {
 	logger.Info("Notifier service initialized!")
 
 	logger.Info("Initializing state storage ...")
-	storage := app.NewStateStorage("state.json")
+	storage, err := app.NewStateStorage("state.db")
+	if err != nil {
+		logger.Error("Create storage", zap.Error(err))
+	}
 
 	logger.Info("State storage initialized!")
 
 	logger.Info("Initializing application ...")
 	application := app.New(
+		iconPath,
 		logger,
 		&config,
 		twitchClient,
@@ -103,10 +116,17 @@ func main() {
 	logger.Info("Application started!")
 
 	logger.Info("Creating tray ...")
-	trayApp := tray.New(logger, func() {
-		logger.Info("Tray exit event has requested!")
-		stop()
-	})
+	trayApp := tray.New(
+		iconPath,
+		logger,
+		&config,
+		twitchClient,
+		notificationService,
+		func() {
+			logger.Info("Tray exit event has requested!")
+			stop()
+		},
+	)
 
 	logger.Info("Tray created!")
 

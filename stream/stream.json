@@ -2,8 +2,7 @@
     "check_interval": "1m",
     "streamers": [
         {
-            "channel": "forsen",
-            "enabled": true
+            "channel": "forsen"
         }
     ]
 }

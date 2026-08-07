@@ -15,6 +15,7 @@ import (
 )
 
 type App struct {
+	icon     string
 	log      *zap.Logger
 	config   *config.Config
 	twitch   *twitch.Client
@@ -23,6 +24,7 @@ type App struct {
 }
 
 func New(
+	icon string,
 	log *zap.Logger,
 	cfg *config.Config,
 	twitchClient *twitch.Client,
@@ -30,6 +32,7 @@ func New(
 	storage *StateStorage,
 ) *App {
 	return &App{
+		icon:     icon,
 		log:      log,
 		config:   cfg,
 		twitch:   twitchClient,
@@ -41,21 +44,10 @@ func New(
 func (a *App) Run(
 	ctx context.Context,
 ) error {
-	a.log.Info("Checking initial stream states ...")
-	states, err := a.storage.Load()
-	if err != nil {
-		a.log.Error("App.Run.Load", zap.Error(err))
-		return err
-	}
-
 	var status strings.Builder
-	status.WriteString("Streamers's statuses:\n\n")
+	status.WriteString("Twitch streamers status:\n\n")
 
 	for _, streamer := range a.config.Streamers {
-		if !streamer.Enabled {
-			continue
-		}
-
 		channel := streamer.Channel
 		stream, err := a.twitch.GetStream(channel)
 		if err != nil {
@@ -63,10 +55,14 @@ func (a *App) Run(
 			continue
 		}
 
-		states[channel] = StreamState{
+		err = a.storage.Save(StreamState{
+			Channel:   channel,
 			IsLive:    stream.IsLive,
 			StreamID:  stream.ID,
 			UpdatedAt: time.Now(),
+		})
+		if err != nil {
+			a.log.Error("App.Run.Save", zap.Error(err))
 		}
 
 		if stream.IsLive {
@@ -76,15 +72,11 @@ func (a *App) Run(
 		}
 	}
 
-	if err := a.storage.Save(states); err != nil {
-		a.log.Error("App.Run.Save", zap.Error(err))
-	}
-
-	if status.Len() > len("Streamers's statuses:\n\n") {
+	if status.Len() > len("Twitch streamers status:\n\n") {
 		err := a.notifier.Send(notifier.Notification{
 			Title:   "tway",
 			Message: status.String(),
-			Icon:    "",
+			Icon:    a.icon,
 		})
 
 		if err != nil {
@@ -96,10 +88,6 @@ func (a *App) Run(
 		zap.String("Run", "Starting the stream watchers ..."))
 	group, ctx := errgroup.WithContext(ctx)
 	for _, streamer := range a.config.Streamers {
-		if !streamer.Enabled {
-			continue
-		}
-
 		channel := streamer.Channel
 		group.Go(func(channel string) func() error {
 			return func() error {
@@ -108,7 +96,16 @@ func (a *App) Run(
 				)
 
 				defer ticker.Stop()
-				wasLive := states[channel].IsLive
+				state, err := a.storage.Get(channel)
+				if err != nil {
+					a.log.Error("App.Run.GetState", zap.Error(err))
+					return err
+				}
+
+				wasLive := false
+				if state != nil {
+					wasLive = state.IsLive
+				}
 
 				for {
 					select {
@@ -143,7 +140,7 @@ func (a *App) Run(
 									stream.Title,
 									stream.Game,
 								),
-								Icon: "",
+								Icon: a.icon,
 								URL:  "https://twitch.tv/" + channel,
 							})
 							if err != nil {
@@ -160,7 +157,7 @@ func (a *App) Run(
 							err := a.notifier.Send(notifier.Notification{
 								Title:   channel + " has ended the broadcast",
 								Message: "The streamer has left the broadcast",
-								Icon:    "",
+								Icon:    a.icon,
 								URL:     "https://twitch.tv/" + channel,
 							})
 							if err != nil {
@@ -171,15 +168,18 @@ func (a *App) Run(
 							wasLive = false
 						}
 
-						states[channel] = StreamState{
+						err = a.storage.Save(StreamState{
+							Channel:   channel,
 							IsLive:    stream.IsLive,
 							StreamID:  stream.ID,
 							UpdatedAt: time.Now(),
-						}
-
-						if err := a.storage.Save(states); err != nil {
-							a.log.Error("Save state failed",
-								zap.String("Channel", channel), zap.Error(err))
+						})
+						if err != nil {
+							a.log.Error(
+								"Save state failed",
+								zap.String("Channel", channel),
+								zap.Error(err),
+							)
 						}
 					}
 				}
@@ -188,6 +188,6 @@ func (a *App) Run(
 	}
 
 	a.log.Info("App.Run",
-		zap.String("Run", "All the watchers have started!"))
+		zap.String("Run", "All stream watchers are running!"))
 	return group.Wait()
 }

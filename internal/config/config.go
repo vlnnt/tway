@@ -13,7 +13,6 @@ type Config struct {
 
 type Streamer struct {
 	Channel string `json:"channel"`
-	Enabled bool   `json:"enabled"`
 }
 
 type Duration struct {

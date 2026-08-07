@@ -1,66 +1,132 @@
 package app
 
 import (
-	"encoding/json"
+	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
+
+	_ "modernc.org/sqlite"
 )
 
 type StateStorage struct {
-	path string
+	db *sql.DB
 }
 
 func NewStateStorage(
 	path string,
-) *StateStorage {
-	return &StateStorage{
-		path: path,
+) (*StateStorage, error) {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+
+	storage := &StateStorage{
+		db: db,
+	}
+
+	if err := storage.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return storage, nil
 }
 
-func (s *StateStorage) Load() (States, error) {
-	file, err := os.Open(s.path)
+func (s *StateStorage) migrate() error {
+	_, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS stream_states (
+			channel TEXT PRIMARY KEY,
+			is_live INTEGER NOT NULL,
+			stream_id TEXT NOT NULL,
+			updated_at DATETIME NOT NULL
+		);
+	`)
+
 	if err != nil {
-		if os.IsNotExist(err) {
-			return make(States), nil
-		}
-
-		return nil, fmt.Errorf("open state file: %w", err)
-	}
-	defer file.Close()
-
-	var states States
-	err = json.NewDecoder(file).Decode(&states)
-	if err != nil {
-		return nil, fmt.Errorf("decode state: %w")
-	}
-
-	return states, nil
-}
-
-func (s *StateStorage) Save(
-	states States,
-) error {
-	dir := filepath.Dir(s.path)
-	err := os.MkdirAll(dir, 0755)
-	if err != nil {
-		return fmt.Errorf("create state directory: %w", err)
-	}
-
-	file, err := os.Create(s.path)
-	if err != nil {
-		return fmt.Errorf("create state file: %w")
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-
-	err = encoder.Encode(states)
-	if err != nil {
-		return fmt.Errorf("encode state: %w")
+		return fmt.Errorf("create table: %w", err)
 	}
 
 	return nil
+}
+
+func (s *StateStorage) Get(
+	channel string,
+) (*StreamState, error) {
+	row := s.db.QueryRow(`
+		SELECT
+			channel,
+			is_live,
+			stream_id,
+			updated_at
+		FROM stream_states
+		WHERE channel = ?
+	`, channel)
+
+	var state StreamState
+	var live int
+
+	err := row.Scan(
+		&state.Channel,
+		&live,
+		&state.StreamID,
+		&state.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("get state: %w", err)
+	}
+
+	state.IsLive = live == 1
+	return &state, nil
+}
+
+func (s *StateStorage) Save(
+	state StreamState,
+) error {
+	_, err := s.db.Exec(`
+		INSERT INTO stream_states (
+			channel,
+			is_live,
+			stream_id,
+			updated_at
+		)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(channel)
+		DO UPDATE SET
+			is_live = excluded.is_live,
+			stream_id = excluded.stream_id,
+			updated_at = excluded.updated_at
+	`,
+		state.Channel,
+		boolToInt(state.IsLive),
+		state.StreamID,
+		state.UpdatedAt,
+	)
+
+	if err != nil {
+		return fmt.Errorf("save state: %w", err)
+	}
+
+	return nil
+}
+
+func (s *StateStorage) Close() error {
+	if s.db == nil {
+		return nil
+	}
+
+	return s.db.Close()
+}
+
+func boolToInt(
+	value bool,
+) int {
+	if value {
+		return 1
+	}
+
+	return 0
 }

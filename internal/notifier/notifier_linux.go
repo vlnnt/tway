@@ -47,7 +47,7 @@ func (n *LinuxNotifier) Send(
 		dbus.Flags(0),
 		"tway",
 		uint32(0),
-		"dialog-information",
+		notification.Icon,
 		notification.Title,
 		notification.Message,
 		[]string{},
