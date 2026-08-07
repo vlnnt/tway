@@ -19,8 +19,7 @@ Create `stream.json`:
   "check_interval": "1m",
   "streamers": [
     {
-      "channel": "streamer_name",
-      "enabled": true
+      "channel": "streamer_name"
     }
   ]
 }
