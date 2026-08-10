@@ -30,22 +30,14 @@ func main() {
 
 	exeDir := filepath.Dir(exePath)
 	configPath := filepath.Join(exeDir, "stream.json")
-
-	iconPath := filepath.Join(
-		filepath.Dir(exePath),
-		"twitch.ico",
-	)
+	iconPath := filepath.Join(exeDir, "twitch.ico")
 
 	logger.Info("Icon path", zap.String("Path", iconPath))
 	if len(os.Args) >= 2 && os.Args[1] != "--tui" {
 		configPath = os.Args[1]
 	}
 
-	logger.Info(
-		"Loading config ...",
-		zap.String("Path", configPath),
-	)
-
+	logger.Info("Loading config ...", zap.String("Path", configPath))
 	file, err := os.Open(configPath)
 	if err != nil {
 		logger.Error("main.os.Open", zap.Error(err))
@@ -55,15 +47,11 @@ func main() {
 
 	var cfg config.Config
 	if err := json.NewDecoder(file).Decode(&cfg); err != nil {
-		logger.Error(
-			"main.json.NewDecoder.Decode",
-			zap.Error(err),
-		)
+		logger.Error("main.json.NewDecoder.Decode", zap.Error(err))
 		return
 	}
 
-	logger.Info(
-		"Config has loaded",
+	logger.Info("Config has loaded",
 		zap.Duration("Interval", cfg.CheckInterval.Duration),
 		zap.Int("Streamers", len(cfg.Streamers)),
 	)
@@ -72,13 +60,15 @@ func main() {
 	twitchClient := twitch.NewClient(logger)
 
 	logger.Info("Twitch client initialized!")
-
 	if len(os.Args) >= 2 && os.Args[1] == "--tui" {
 		logger.Info("Starting TUI ...")
+		if err := tui.AttachConsole(); err != nil {
+			logger.Error("main.AttachConsole", zap.Error(err))
+			return
+		}
 
 		var streams []*twitch.Stream
 		for _, streamer := range cfg.Streamers {
-
 			stream, err := twitchClient.GetStream(streamer.Channel)
 			if err != nil {
 				logger.Error(
@@ -98,7 +88,6 @@ func main() {
 				"TUI stopped with error",
 				zap.Error(err),
 			)
-			return
 		}
 
 		return
@@ -111,23 +100,25 @@ func main() {
 			"Create notifier",
 			zap.Error(err),
 		)
-
 		return
 	}
+
 	defer notificationService.Close()
 
 	logger.Info("Notifier service initialized!")
 
 	logger.Info("Initializing state storage ...")
 	storage, err := app.NewStateStorage(
-		filepath.Join(exeDir, "state.db"),
+		filepath.Join(
+			exeDir,
+			"state.db",
+		),
 	)
 	if err != nil {
 		logger.Error(
 			"Create storage",
 			zap.Error(err),
 		)
-
 		return
 	}
 
@@ -151,8 +142,8 @@ func main() {
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
-	defer stop()
 
+	defer stop()
 	logger.Info("Notify context created!")
 
 	logger.Info("Running application ...")
@@ -162,6 +153,7 @@ func main() {
 				"Application stopped",
 				zap.Error(err),
 			)
+
 			stop()
 		}
 	}()
@@ -182,7 +174,7 @@ func main() {
 	)
 
 	logger.Info("Tray created!")
-
 	trayApp.Run()
+
 	logger.Info("Tway stopped!")
 }

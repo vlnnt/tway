@@ -42,23 +42,39 @@ func (u *TUI) ShowStreamers(
 			SetExpansion(1),
 	)
 
+	table.SetCell(
+		0,
+		2,
+		tview.NewTableCell("Link").
+			SetAlign(tview.AlignCenter).
+			SetExpansion(1),
+	)
+
 	row := 1
 	for _, state := range states {
-		status := "🔴 OFFLINE"
+		status := "OFFLINE"
 		if state.IsLive {
-			status = "🟢 LIVE"
+			status = "LIVE"
 		}
 
 		table.SetCell(
 			row,
 			0,
-			tview.NewTableCell(state.Channel),
+			tview.NewTableCell(state.Channel).
+				SetAlign(tview.AlignCenter),
 		)
 
 		table.SetCell(
 			row,
 			1,
 			tview.NewTableCell(status).
+				SetAlign(tview.AlignCenter),
+		)
+
+		table.SetCell(
+			row,
+			2,
+			tview.NewTableCell("https://twitch.tv/"+state.Channel).
 				SetAlign(tview.AlignCenter),
 		)
 
