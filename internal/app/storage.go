@@ -31,8 +31,8 @@ func NewStateStorage(
 	return storage, nil
 }
 
-func (s *StateStorage) migrate() error {
-	_, err := s.db.Exec(`
+func (ss *StateStorage) migrate() error {
+	_, err := ss.db.Exec(`
 		CREATE TABLE IF NOT EXISTS stream_states (
 			channel TEXT PRIMARY KEY,
 			is_live INTEGER NOT NULL,
@@ -48,10 +48,10 @@ func (s *StateStorage) migrate() error {
 	return nil
 }
 
-func (s *StateStorage) Get(
+func (ss *StateStorage) Get(
 	channel string,
 ) (*StreamState, error) {
-	row := s.db.QueryRow(`
+	row := ss.db.QueryRow(`
 		SELECT
 			channel,
 			is_live,
@@ -83,10 +83,10 @@ func (s *StateStorage) Get(
 	return &state, nil
 }
 
-func (s *StateStorage) Save(
+func (ss *StateStorage) Save(
 	state StreamState,
 ) error {
-	_, err := s.db.Exec(`
+	_, err := ss.db.Exec(`
 		INSERT INTO stream_states (
 			channel,
 			is_live,
@@ -113,12 +113,12 @@ func (s *StateStorage) Save(
 	return nil
 }
 
-func (s *StateStorage) Close() error {
-	if s.db == nil {
+func (ss *StateStorage) Close() error {
+	if ss.db == nil {
 		return nil
 	}
 
-	return s.db.Close()
+	return ss.db.Close()
 }
 
 func boolToInt(

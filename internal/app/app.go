@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -23,7 +22,7 @@ type App struct {
 	storage  *StateStorage
 }
 
-func New(
+func NewApp(
 	icon string,
 	log *zap.Logger,
 	cfg *config.Config,
@@ -44,9 +43,7 @@ func New(
 func (a *App) Run(
 	ctx context.Context,
 ) error {
-	var status strings.Builder
-	status.WriteString("Twitch streamers status:\n\n")
-
+	online, offline := 0, 0
 	for _, streamer := range a.config.Streamers {
 		channel := streamer.Channel
 		stream, err := a.twitch.GetStream(channel)
@@ -66,16 +63,22 @@ func (a *App) Run(
 		}
 
 		if stream.IsLive {
-			status.WriteString(fmt.Sprintf("🟢 %s — LIVE\n", channel))
+			online++
 		} else {
-			status.WriteString(fmt.Sprintf("🔴 %s — OFFLINE\n", channel))
+			offline++
 		}
 	}
 
-	if status.Len() > len("Twitch streamers status:\n\n") {
+	if online+offline > 0 {
+		status := fmt.Sprintf(
+			"🟢 Online: %d\n🔴 Offline: %d",
+			online,
+			offline,
+		)
+
 		err := a.notifier.Send(notifier.Notification{
 			Title:   "tway",
-			Message: status.String(),
+			Message: status,
 			Icon:    a.icon,
 		})
 
