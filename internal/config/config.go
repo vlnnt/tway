@@ -7,12 +7,9 @@ import (
 )
 
 type Config struct {
-	CheckInterval Duration   `json:"check_interval"`
-	Streamers     []Streamer `json:"streamers"`
-}
-
-type Streamer struct {
-	Channel string `json:"channel"`
+	CheckInterval   Duration `json:"check_interval"`
+	SummaryInterval Duration `json:"summary_interval"`
+	Streamers       []string `json:"streamers"`
 }
 
 type Duration struct {

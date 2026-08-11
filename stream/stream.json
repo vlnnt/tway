@@ -1,8 +1,7 @@
 {
     "check_interval": "1m",
+    "summary_interval": "3m",
     "streamers": [
-        {
-            "channel": "forsen"
-        }
+        "forsen"
     ]
 }

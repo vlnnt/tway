@@ -3,12 +3,14 @@ package app
 import (
 	"database/sql"
 	"fmt"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
 
 type StateStorage struct {
 	db *sql.DB
+	mu sync.RWMutex
 }
 
 func NewStateStorage(
@@ -31,8 +33,8 @@ func NewStateStorage(
 	return storage, nil
 }
 
-func (s *StateStorage) migrate() error {
-	_, err := s.db.Exec(`
+func (ss *StateStorage) migrate() error {
+	_, err := ss.db.Exec(`
 		CREATE TABLE IF NOT EXISTS stream_states (
 			channel TEXT PRIMARY KEY,
 			is_live INTEGER NOT NULL,
@@ -40,18 +42,28 @@ func (s *StateStorage) migrate() error {
 			updated_at DATETIME NOT NULL
 		);
 	`)
-
 	if err != nil {
 		return fmt.Errorf("create table: %w", err)
+	}
+
+	if _, err := ss.db.Exec(`PRAGMA journal_mode = WAL;`); err != nil {
+		return fmt.Errorf("set WAL mode: %w", err)
+	}
+
+	if _, err := ss.db.Exec(`PRAGMA busy_timeout = 5000;`); err != nil {
+		return fmt.Errorf("set busy timeout: %w", err)
 	}
 
 	return nil
 }
 
-func (s *StateStorage) Get(
+func (ss *StateStorage) Get(
 	channel string,
 ) (*StreamState, error) {
-	row := s.db.QueryRow(`
+	ss.mu.RLock()
+	defer ss.mu.RUnlock()
+
+	row := ss.db.QueryRow(`
 		SELECT
 			channel,
 			is_live,
@@ -83,10 +95,13 @@ func (s *StateStorage) Get(
 	return &state, nil
 }
 
-func (s *StateStorage) Save(
+func (ss *StateStorage) Save(
 	state StreamState,
 ) error {
-	_, err := s.db.Exec(`
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	_, err := ss.db.Exec(`
 		INSERT INTO stream_states (
 			channel,
 			is_live,
@@ -105,7 +120,6 @@ func (s *StateStorage) Save(
 		state.StreamID,
 		state.UpdatedAt,
 	)
-
 	if err != nil {
 		return fmt.Errorf("save state: %w", err)
 	}
@@ -113,12 +127,12 @@ func (s *StateStorage) Save(
 	return nil
 }
 
-func (s *StateStorage) Close() error {
-	if s.db == nil {
+func (ss *StateStorage) Close() error {
+	if ss.db == nil {
 		return nil
 	}
 
-	return s.db.Close()
+	return ss.db.Close()
 }
 
 func boolToInt(

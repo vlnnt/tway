@@ -12,6 +12,7 @@ import (
 	"tway/internal/config"
 	"tway/internal/notifier"
 	"tway/internal/tray"
+	"tway/internal/tui"
 	"tway/internal/twitch"
 
 	"go.uber.org/zap"
@@ -24,23 +25,15 @@ func main() {
 	exePath, err := os.Executable()
 	if err != nil {
 		logger.Error("main.os.Executable", zap.Error(err))
+		return
 	}
 
-	configPath := filepath.Join(
-		filepath.Dir(exePath),
-		"stream.json",
-	)
+	exeDir := filepath.Dir(exePath)
+	configPath := filepath.Join(exeDir, "stream.json")
+	iconPath := filepath.Join(exeDir, "twitch.ico")
 
-	iconPath := filepath.Join(
-		filepath.Dir(exePath),
-		"twitch.ico",
-	)
-
-	logger.Info("Icon path",
-		zap.String("Path", iconPath),
-	)
-
-	if len(os.Args) >= 2 {
+	logger.Info("Icon path", zap.String("Path", iconPath))
+	if len(os.Args) >= 2 && os.Args[1] != "--tui" {
 		configPath = os.Args[1]
 	}
 
@@ -48,16 +41,19 @@ func main() {
 	file, err := os.Open(configPath)
 	if err != nil {
 		logger.Error("main.os.Open", zap.Error(err))
+		return
 	}
 	defer file.Close()
 
 	var config config.Config
 	if err := json.NewDecoder(file).Decode(&config); err != nil {
 		logger.Error("main.json.NewDecoder.Decode", zap.Error(err))
+		return
 	}
 
 	logger.Info("Config has loaded",
-		zap.Duration("Interval", config.CheckInterval.Duration),
+		zap.Duration("Check interval", config.CheckInterval.Duration),
+		zap.Duration("Summary interval", config.SummaryInterval.Duration),
 		zap.Int("Streamers", len(config.Streamers)),
 	)
 
@@ -65,26 +61,62 @@ func main() {
 	twitchClient := twitch.NewClient(logger)
 
 	logger.Info("Twitch client initialized!")
+	if len(os.Args) >= 2 && os.Args[1] == "--tui" {
+		logger.Info("Starting TUI ...")
+		if err := tui.AttachConsole(); err != nil {
+			logger.Error("main.AttachConsole", zap.Error(err))
+			return
+		}
+
+		var streams []*twitch.Stream
+		for _, channel := range config.Streamers {
+			stream, err := twitchClient.GetStream(channel)
+			if err != nil {
+				logger.Error(
+					"main.GetStream",
+					zap.String("Channel", channel),
+					zap.Error(err),
+				)
+				continue
+			}
+
+			streams = append(streams, stream)
+		}
+
+		ui := tui.NewTUI()
+		if err := ui.ShowStreamers(streams); err != nil {
+			logger.Error(
+				"TUI stopped with error", zap.Error(err))
+		}
+
+		return
+	}
 
 	logger.Info("Initializing notifier service ...")
 	notificationService, err := notifier.New(logger)
 	if err != nil {
-		logger.Error("Create notifier", zap.Error(err))
+		logger.Error(
+			"Create notifier", zap.Error(err))
+		return
 	}
+
 	defer notificationService.Close()
 
 	logger.Info("Notifier service initialized!")
 
 	logger.Info("Initializing state storage ...")
-	storage, err := app.NewStateStorage("state.db")
+	storage, err := app.NewStateStorage(
+		filepath.Join(exeDir, "state.db"),
+	)
 	if err != nil {
 		logger.Error("Create storage", zap.Error(err))
+		return
 	}
 
 	logger.Info("State storage initialized!")
 
 	logger.Info("Initializing application ...")
-	application := app.New(
+	application := app.NewApp(
 		iconPath,
 		logger,
 		&config,
@@ -101,14 +133,15 @@ func main() {
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
-	defer stop()
 
+	defer stop()
 	logger.Info("Notify context created!")
 
 	logger.Info("Running application ...")
 	go func() {
 		if err := application.Run(ctx); err != nil {
-			logger.Error("Application stopped", zap.Error(err))
+			logger.Error(
+				"Application stopped", zap.Error(err))
 			stop()
 		}
 	}()
@@ -116,12 +149,12 @@ func main() {
 	logger.Info("Application started!")
 
 	logger.Info("Creating tray ...")
-	trayApp := tray.New(
-		iconPath,
+	trayApp := tray.NewTray(
 		logger,
 		&config,
 		twitchClient,
 		notificationService,
+		storage,
 		func() {
 			logger.Info("Tray exit event has requested!")
 			stop()
@@ -129,7 +162,7 @@ func main() {
 	)
 
 	logger.Info("Tray created!")
-
 	trayApp.Run()
+
 	logger.Info("Tway stopped!")
 }
