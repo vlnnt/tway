@@ -3,6 +3,7 @@ package tui
 import (
 	"tway/internal/twitch"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -53,8 +54,11 @@ func (u *TUI) ShowStreamers(
 	row := 1
 	for _, state := range states {
 		status := "OFFLINE"
+		statusColor := tcell.ColorRed
+
 		if state.IsLive {
 			status = "LIVE"
+			statusColor = tcell.ColorGreen
 		}
 
 		table.SetCell(
@@ -68,7 +72,9 @@ func (u *TUI) ShowStreamers(
 			row,
 			1,
 			tview.NewTableCell(status).
-				SetAlign(tview.AlignCenter),
+				SetAlign(tview.AlignCenter).
+				SetTextColor(statusColor).
+				SetAttributes(tcell.AttrBold),
 		)
 
 		table.SetCell(

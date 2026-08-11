@@ -117,7 +117,7 @@ func (a *App) Run(
 							a.log.Info("Stream started",
 								zap.String("Channel", channel))
 							err := a.notifier.Send(notifier.Notification{
-								Title: channel + " has started the broadcast",
+								Title: channel + " is now live",
 								Message: fmt.Sprintf(
 									"%s\nCategory: %s",
 									stream.Title,
@@ -138,7 +138,7 @@ func (a *App) Run(
 							a.log.Info("The stream has ended",
 								zap.String("Channel", channel))
 							err := a.notifier.Send(notifier.Notification{
-								Title:   channel + " has ended the broadcast",
+								Title:   channel + " is no longer live",
 								Message: "The streamer has left the broadcast",
 								Icon:    a.icon,
 								URL:     "https://twitch.tv/" + channel,

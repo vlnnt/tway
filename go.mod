@@ -3,6 +3,7 @@ module tway
 go 1.26.5
 
 require (
+	github.com/gdamore/tcell/v2 v2.8.1
 	github.com/getlantern/systray v1.2.2
 	github.com/go-toast/toast v0.0.0-20190211030409-01e6764cf0a4
 	github.com/godbus/dbus/v5 v5.2.2
@@ -18,7 +19,6 @@ require (
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
-	github.com/gdamore/tcell/v2 v2.8.1 // indirect
 	github.com/getlantern/context v0.0.0-20190109183933-c447772a6520 // indirect
 	github.com/getlantern/errors v0.0.0-20190325191628-abdb3e3e36f7 // indirect
 	github.com/getlantern/golog v0.0.0-20190830074920-4ef2e798c2d7 // indirect
