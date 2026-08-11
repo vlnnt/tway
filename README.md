@@ -17,10 +17,9 @@ Create `stream.json`:
 ```json
 {
   "check_interval": "1m",
+  "summary_interval": "3m",
   "streamers": [
-    {
-      "channel": "streamer_name"
-    }
+      "streamer_name"
   ]
 }
 ```

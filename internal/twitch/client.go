@@ -10,6 +10,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const maxAttempts = 3
+
 type Client struct {
 	log        *zap.Logger
 	httpClient *fasthttp.Client
@@ -36,7 +38,40 @@ func (c *Client) GetStream(
 		return nil, fmt.Errorf("channel cannot be empty")
 	}
 
-	c.log.Info("Checking channel ...", zap.String("Channel", channel))
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		stream, err := c.getStream(channel)
+		if err == nil {
+			return stream, nil
+		}
+
+		lastErr = err
+		if attempt < maxAttempts {
+			c.log.Warn(
+				"GetStream failed, retrying ...",
+				zap.String("Channel", channel),
+				zap.Int("Attempt", attempt),
+				zap.Int("MaxAttempts", maxAttempts),
+				zap.Error(err),
+			)
+
+			time.Sleep(time.Second * 3)
+		}
+	}
+
+	return nil, fmt.Errorf(
+		"failed to get stream %q after %d attempts: %w",
+		channel,
+		maxAttempts,
+		lastErr,
+	)
+}
+
+func (c *Client) getStream(
+	channel string,
+) (*Stream, error) {
+	c.log.Info("Checking channel ...",
+		zap.String("Channel", channel))
 	requestBody := streamMetadataRequest{
 		OperationName: "StreamMetadata",
 		Variables: streamMetadataVariables{
@@ -69,7 +104,8 @@ func (c *Client) GetStream(
 	request.Header.Set("Accept", "application/json")
 	request.SetBody(body)
 
-	c.log.Info("Sending request", zap.String("URL", apiURL))
+	c.log.Info("Sending request",
+		zap.String("URL", apiURL))
 	if err := c.httpClient.DoTimeout(
 		request,
 		response,
@@ -78,9 +114,12 @@ func (c *Client) GetStream(
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 
-	c.log.Info("HTTP Status", zap.Int("Code", response.StatusCode()))
+	c.log.Info("HTTP Status",
+		zap.Int("Code", response.StatusCode()))
 	if response.StatusCode() != fasthttp.StatusOK {
-		c.log.Info("Response", zap.ByteString("Body", response.Body()))
+		c.log.Info(
+			"Response", zap.ByteString("Body", response.Body()))
+
 		return nil, fmt.Errorf(
 			"twitch returned status %d: %s",
 			response.StatusCode(),
@@ -89,13 +128,17 @@ func (c *Client) GetStream(
 	}
 
 	var result streamMetadataResponse
-	if err := json.Unmarshal(response.Body(), &result); err != nil {
+	if err := json.Unmarshal(
+		response.Body(),
+		&result,
+	); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
 	if len(result.Errors) > 0 {
-		return nil,
-			fmt.Errorf("twitch GraphQL error: %s", result.Errors[0].Message)
+		return nil, fmt.Errorf(
+			"twitch GraphQL error: %s", result.Errors[0].Message,
+		)
 	}
 
 	if result.Data.User == nil {
@@ -103,7 +146,8 @@ func (c *Client) GetStream(
 	}
 
 	if result.Data.User.Stream == nil {
-		c.log.Info("Channel is offline", zap.String("Channel", channel))
+		c.log.Info(
+			"Channel is offline", zap.String("Channel", channel))
 		return &Stream{
 			Channel: channel,
 			Title:   result.Data.User.LastBroadcast.Title,

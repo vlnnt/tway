@@ -45,15 +45,16 @@ func main() {
 	}
 	defer file.Close()
 
-	var cfg config.Config
-	if err := json.NewDecoder(file).Decode(&cfg); err != nil {
+	var config config.Config
+	if err := json.NewDecoder(file).Decode(&config); err != nil {
 		logger.Error("main.json.NewDecoder.Decode", zap.Error(err))
 		return
 	}
 
 	logger.Info("Config has loaded",
-		zap.Duration("Interval", cfg.CheckInterval.Duration),
-		zap.Int("Streamers", len(cfg.Streamers)),
+		zap.Duration("Check interval", config.CheckInterval.Duration),
+		zap.Duration("Summary interval", config.SummaryInterval.Duration),
+		zap.Int("Streamers", len(config.Streamers)),
 	)
 
 	logger.Info("Initializing twitch client ...")
@@ -68,12 +69,12 @@ func main() {
 		}
 
 		var streams []*twitch.Stream
-		for _, streamer := range cfg.Streamers {
-			stream, err := twitchClient.GetStream(streamer.Channel)
+		for _, channel := range config.Streamers {
+			stream, err := twitchClient.GetStream(channel)
 			if err != nil {
 				logger.Error(
 					"main.GetStream",
-					zap.String("Channel", streamer.Channel),
+					zap.String("Channel", channel),
 					zap.Error(err),
 				)
 				continue
@@ -85,9 +86,7 @@ func main() {
 		ui := tui.NewTUI()
 		if err := ui.ShowStreamers(streams); err != nil {
 			logger.Error(
-				"TUI stopped with error",
-				zap.Error(err),
-			)
+				"TUI stopped with error", zap.Error(err))
 		}
 
 		return
@@ -97,9 +96,7 @@ func main() {
 	notificationService, err := notifier.New(logger)
 	if err != nil {
 		logger.Error(
-			"Create notifier",
-			zap.Error(err),
-		)
+			"Create notifier", zap.Error(err))
 		return
 	}
 
@@ -109,16 +106,10 @@ func main() {
 
 	logger.Info("Initializing state storage ...")
 	storage, err := app.NewStateStorage(
-		filepath.Join(
-			exeDir,
-			"state.db",
-		),
+		filepath.Join(exeDir, "state.db"),
 	)
 	if err != nil {
-		logger.Error(
-			"Create storage",
-			zap.Error(err),
-		)
+		logger.Error("Create storage", zap.Error(err))
 		return
 	}
 
@@ -128,7 +119,7 @@ func main() {
 	application := app.NewApp(
 		iconPath,
 		logger,
-		&cfg,
+		&config,
 		twitchClient,
 		notificationService,
 		storage,
@@ -150,10 +141,7 @@ func main() {
 	go func() {
 		if err := application.Run(ctx); err != nil {
 			logger.Error(
-				"Application stopped",
-				zap.Error(err),
-			)
-
+				"Application stopped", zap.Error(err))
 			stop()
 		}
 	}()
@@ -163,7 +151,7 @@ func main() {
 	logger.Info("Creating tray ...")
 	trayApp := tray.NewTray(
 		logger,
-		&cfg,
+		&config,
 		twitchClient,
 		notificationService,
 		storage,
