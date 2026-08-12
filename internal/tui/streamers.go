@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"os/exec"
+	"runtime"
+
 	"tway/internal/twitch"
 
 	"github.com/gdamore/tcell/v2"
@@ -32,7 +35,8 @@ func (u *TUI) ShowStreamers(
 		0,
 		tview.NewTableCell("Streamer").
 			SetAlign(tview.AlignCenter).
-			SetExpansion(1),
+			SetExpansion(1).
+			SetAttributes(tcell.AttrBold),
 	)
 
 	table.SetCell(
@@ -40,7 +44,8 @@ func (u *TUI) ShowStreamers(
 		1,
 		tview.NewTableCell("Status").
 			SetAlign(tview.AlignCenter).
-			SetExpansion(1),
+			SetExpansion(1).
+			SetAttributes(tcell.AttrBold),
 	)
 
 	table.SetCell(
@@ -48,7 +53,8 @@ func (u *TUI) ShowStreamers(
 		2,
 		tview.NewTableCell("Link").
 			SetAlign(tview.AlignCenter).
-			SetExpansion(1),
+			SetExpansion(1).
+			SetAttributes(tcell.AttrBold),
 	)
 
 	row := 1
@@ -77,16 +83,48 @@ func (u *TUI) ShowStreamers(
 				SetAttributes(tcell.AttrBold),
 		)
 
+		url := "https://twitch.tv/" + state.Channel
+
+		linkCell := tview.NewTableCell(url).
+			SetAlign(tview.AlignCenter).
+			SetTextColor(tcell.ColorLightSkyBlue).
+			SetAttributes(tcell.AttrUnderline)
+
+		linkCell.SetClickedFunc(func() bool {
+			openURL(url)
+			return true
+		})
+
 		table.SetCell(
 			row,
 			2,
-			tview.NewTableCell("https://twitch.tv/"+state.Channel).
-				SetAlign(tview.AlignCenter),
+			linkCell,
 		)
 
 		row++
 	}
 
 	return u.application.
-		SetRoot(table, true).Run()
+		SetRoot(table, true).
+		EnableMouse(true).
+		Run()
+}
+
+func openURL(
+	url string,
+) {
+	switch runtime.GOOS {
+	case "windows":
+		_ = exec.Command(
+			"rundll32",
+			"url.dll,FileProtocolHandler",
+			url,
+		).Start()
+
+	case "linux":
+		_ = exec.Command(
+			"xdg-open",
+			url,
+		).Start()
+	}
 }
