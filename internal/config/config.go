@@ -9,7 +9,8 @@ import (
 type Config struct {
 	CheckInterval   Duration `json:"check_interval"`
 	SummaryInterval Duration `json:"summary_interval"`
-	Streamers       []string `json:"streamers"`
+	TwitchChannels  []string `json:"twitch"`
+	KickChannels    []string `json:"kick"`
 }
 
 type Duration struct {

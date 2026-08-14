@@ -1,7 +1,10 @@
 {
-    "check_interval": "1m",
-    "summary_interval": "3m",
-    "streamers": [
+    "check_interval": "2m",
+    "summary_interval": "10m",
+    "twitch": [
+        "forsen"
+    ],
+    "kick": [
         "forsen"
     ]
 }

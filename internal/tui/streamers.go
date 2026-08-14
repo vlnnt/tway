@@ -4,7 +4,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	"tway/internal/twitch"
+	"tway/internal/client"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -21,13 +21,13 @@ func NewTUI() *TUI {
 }
 
 func (u *TUI) ShowStreamers(
-	states []*twitch.Stream,
+	states []*client.Stream,
 ) error {
 	table := tview.NewTable().
 		SetBorders(true).
 		SetSelectable(false, false)
 
-	table.SetTitle(" Twitch Streamers ").
+	table.SetTitle(" Streamers ").
 		SetBorder(true)
 
 	table.SetCell(
@@ -83,7 +83,7 @@ func (u *TUI) ShowStreamers(
 				SetAttributes(tcell.AttrBold),
 		)
 
-		url := "https://twitch.tv/" + state.Channel
+		url := state.URL
 
 		linkCell := tview.NewTableCell(url).
 			SetAlign(tview.AlignCenter).
