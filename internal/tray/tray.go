@@ -2,11 +2,7 @@ package tray
 
 import (
 	_ "embed"
-	"tway/internal/app"
-	"tway/internal/config"
-	"tway/internal/notifier"
 	"tway/internal/tui"
-	"tway/internal/twitch"
 
 	"github.com/getlantern/systray"
 	"go.uber.org/zap"
@@ -16,29 +12,17 @@ import (
 var icon []byte
 
 type Tray struct {
-	log      *zap.Logger
-	config   *config.Config
-	twitch   *twitch.Client
-	notifier notifier.Notifier
-	storage  *app.StateStorage
-	onExit   func()
+	log    *zap.Logger
+	onExit func()
 }
 
 func NewTray(
 	log *zap.Logger,
-	config *config.Config,
-	twitch *twitch.Client,
-	notifier notifier.Notifier,
-	storage *app.StateStorage,
 	onExit func(),
 ) *Tray {
 	return &Tray{
-		log:      log,
-		config:   config,
-		twitch:   twitch,
-		notifier: notifier,
-		storage:  storage,
-		onExit:   onExit,
+		log:    log,
+		onExit: onExit,
 	}
 }
 

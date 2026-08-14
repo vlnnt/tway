@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"tway/internal/client"
 
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
@@ -20,7 +21,7 @@ type Client struct {
 
 func NewClient(
 	log *zap.Logger,
-) *Client {
+) client.Client {
 	return &Client{
 		log: log,
 		httpClient: &fasthttp.Client{
@@ -32,7 +33,7 @@ func NewClient(
 
 func (c *Client) GetStream(
 	channel string,
-) (*Stream, error) {
+) (*client.Stream, error) {
 	channel = strings.TrimSpace(strings.ToLower(channel))
 	if channel == "" {
 		return nil, fmt.Errorf("channel cannot be empty")
@@ -48,7 +49,7 @@ func (c *Client) GetStream(
 		lastErr = err
 		if attempt < maxAttempts {
 			c.log.Warn(
-				"GetStream failed, retrying ...",
+				"Twitch GetStream failed, retrying ...",
 				zap.String("Channel", channel),
 				zap.Int("Attempt", attempt),
 				zap.Int("MaxAttempts", maxAttempts),
@@ -69,8 +70,8 @@ func (c *Client) GetStream(
 
 func (c *Client) getStream(
 	channel string,
-) (*Stream, error) {
-	c.log.Info("Checking channel ...",
+) (*client.Stream, error) {
+	c.log.Info("Checking Twitch channel ...",
 		zap.String("Channel", channel))
 	requestBody := streamMetadataRequest{
 		OperationName: "StreamMetadata",
@@ -117,9 +118,7 @@ func (c *Client) getStream(
 	c.log.Info("HTTP Status",
 		zap.Int("Code", response.StatusCode()))
 	if response.StatusCode() != fasthttp.StatusOK {
-		c.log.Info(
-			"Response", zap.ByteString("Body", response.Body()))
-
+		c.log.Info("Response", zap.ByteString("Body", response.Body()))
 		return nil, fmt.Errorf(
 			"twitch returned status %d: %s",
 			response.StatusCode(),
@@ -148,7 +147,7 @@ func (c *Client) getStream(
 	if result.Data.User.Stream == nil {
 		c.log.Info(
 			"Channel is offline", zap.String("Channel", channel))
-		return &Stream{
+		return &client.Stream{
 			Channel: channel,
 			Title:   result.Data.User.LastBroadcast.Title,
 			IsLive:  false,
@@ -171,7 +170,7 @@ func (c *Client) getStream(
 		zap.String("Title", result.Data.User.LastBroadcast.Title),
 	)
 
-	return &Stream{
+	return &client.Stream{
 		ID:        stream.ID,
 		Channel:   channel,
 		Title:     result.Data.User.LastBroadcast.Title,
