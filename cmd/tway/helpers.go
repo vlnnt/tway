@@ -5,10 +5,17 @@ import (
 	"fmt"
 	"time"
 
+	"tway/internal/client"
 	"tway/internal/notifier"
 
 	"go.uber.org/zap"
 )
+
+type Platform struct {
+	Name     string
+	Channels []string
+	Client   client.Client
+}
 
 func runSummaryWorker(
 	ctx context.Context,

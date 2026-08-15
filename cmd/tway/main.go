@@ -22,14 +22,12 @@ import (
 	"go.uber.org/zap"
 )
 
-type Platform struct {
-	Name     string
-	Channels []string
-	Client   client.Client
-}
-
 func main() {
-	logger, _ := zap.NewProduction()
+	logger, err := zap.NewProduction()
+	if err != nil {
+		logger.Error("main.zap.NewProduction", zap.Error(err))
+		return
+	}
 	defer logger.Sync()
 
 	exePath, err := os.Executable()

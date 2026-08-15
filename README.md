@@ -16,11 +16,29 @@ Create `stream.json`:
 
 ```json
 {
-  "check_interval": "1m",
-  "summary_interval": "3m",
-  "streamers": [
-      "streamer_name"
-  ]
+  "check_interval": "2m",
+  "summary_interval": "10m",
+  "twitch": {
+      "http_proxy": "127.0.0.1:10808",
+      "socks_proxy": "",
+      "channels": [
+          "defaultstreamer",
+      ]
+  },
+  "kick": {
+      "http_proxy": "",
+      "socks_proxy": "127.0.0.1:10808",
+      "channels": [
+        "defaultstreamer",
+      ]
+  },
+  "youtube": {
+      "http_proxy": "127.0.0.1:10808",
+      "socks_proxy": "",
+      "channels": [
+        "UCjyqq9MiwSrSWBYeqpVb6Pg",
+      ]
+  }
 }
 ```
 
