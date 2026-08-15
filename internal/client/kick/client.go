@@ -10,6 +10,7 @@ import (
 	"tway/internal/client"
 
 	"github.com/valyala/fasthttp"
+	"github.com/valyala/fasthttp/fasthttpproxy"
 	"go.uber.org/zap"
 )
 
@@ -23,13 +24,35 @@ type Client struct {
 
 func NewClient(
 	log *zap.Logger,
+	httpProxy, socksProxy string,
 ) client.Client {
+	httpClient := &fasthttp.Client{
+		Name: "tway",
+	}
+
+	httpProxy = strings.TrimSpace(httpProxy)
+	socksProxy = strings.TrimSpace(socksProxy)
+
+	switch {
+	case socksProxy != "":
+		httpClient.Dial = fasthttpproxy.FasthttpSocksDialer(socksProxy)
+		log.Info("Using SOCKS proxy for Kick")
+
+	case httpProxy != "":
+		httpClient.Dial = fasthttpproxy.FasthttpHTTPDialerTimeout(
+			httpProxy,
+			10*time.Second,
+		)
+		log.Info("Using HTTP proxy for Kick")
+
+	default:
+		log.Info("Using direct connection for Kick")
+	}
+
 	return &Client{
-		log: log,
-		httpClient: &fasthttp.Client{
-			Name: "tway",
-		},
-		timeout: 10 * time.Second,
+		log:        log,
+		httpClient: httpClient,
+		timeout:    10 * time.Second,
 	}
 }
 
@@ -178,8 +201,18 @@ func (c *Client) getStream(
 	)
 
 	streamResult.Title = data.Livestream.Title
-	streamResult.StartedAt = data.Livestream.CreatedAt
+	startedAt, err := time.Parse(
+		"2006-01-02 15:04:05",
+		data.Livestream.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"parse stream start time: %w",
+			err,
+		)
+	}
 
+	streamResult.StartedAt = startedAt
 	if data.Livestream.Category != nil {
 		streamResult.Game = data.Livestream.Category.Name
 	}

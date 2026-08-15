@@ -9,6 +9,7 @@ import (
 	"tway/internal/client"
 
 	"github.com/valyala/fasthttp"
+	"github.com/valyala/fasthttp/fasthttpproxy"
 	"go.uber.org/zap"
 )
 
@@ -22,13 +23,35 @@ type Client struct {
 
 func NewClient(
 	log *zap.Logger,
+	httpProxy, socksProxy string,
 ) client.Client {
+	httpClient := &fasthttp.Client{
+		Name: "tway",
+	}
+
+	httpProxy = strings.TrimSpace(httpProxy)
+	socksProxy = strings.TrimSpace(socksProxy)
+
+	switch {
+	case socksProxy != "":
+		httpClient.Dial = fasthttpproxy.FasthttpSocksDialer(socksProxy)
+		log.Info("Using SOCKS proxy for YouTube")
+
+	case httpProxy != "":
+		httpClient.Dial = fasthttpproxy.FasthttpHTTPDialerTimeout(
+			httpProxy,
+			10*time.Second,
+		)
+		log.Info("Using HTTP proxy for YouTube")
+
+	default:
+		log.Info("Using direct connection for YouTube")
+	}
+
 	return &Client{
-		log: log,
-		httpClient: &fasthttp.Client{
-			Name: "tway",
-		},
-		timeout: 10 * time.Second,
+		log:        log,
+		httpClient: httpClient,
+		timeout:    10 * time.Second,
 	}
 }
 

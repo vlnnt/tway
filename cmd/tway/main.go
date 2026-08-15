@@ -12,6 +12,7 @@ import (
 	"tway/internal/client"
 	"tway/internal/client/kick"
 	"tway/internal/client/twitch"
+	"tway/internal/client/youtube"
 	"tway/internal/config"
 	"tway/internal/notifier"
 	"tway/internal/storage"
@@ -64,21 +65,39 @@ func main() {
 		"Config has loaded",
 		zap.Duration("Check interval", config.CheckInterval.Duration),
 		zap.Duration("Summary interval", config.SummaryInterval.Duration),
-		zap.Int("Twitch", len(config.TwitchChannels)),
-		zap.Int("Kick", len(config.KickChannels)),
+		zap.Int("Twitch", len(config.Twitch.Channels)),
+		zap.Int("Kick", len(config.Kick.Channels)),
+		zap.Int("Youtube", len(config.Youtube.Channels)),
 	)
 
 	logger.Info("Initializing clients ...")
 	platforms := []Platform{
 		{
 			Name:     "twitch",
-			Channels: config.TwitchChannels,
-			Client:   twitch.NewClient(logger),
+			Channels: config.Twitch.Channels,
+			Client: twitch.NewClient(
+				logger,
+				config.Twitch.HTTPProxy,
+				config.Twitch.SocksProxy,
+			),
 		},
 		{
 			Name:     "kick",
-			Channels: config.KickChannels,
-			Client:   kick.NewClient(logger),
+			Channels: config.Kick.Channels,
+			Client: kick.NewClient(
+				logger,
+				config.Kick.HTTPProxy,
+				config.Kick.SocksProxy,
+			),
+		},
+		{
+			Name:     "youtube",
+			Channels: config.Youtube.Channels,
+			Client: youtube.NewClient(
+				logger,
+				config.Youtube.HTTPProxy,
+				config.Youtube.SocksProxy,
+			),
 		},
 	}
 
