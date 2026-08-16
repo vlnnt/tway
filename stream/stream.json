@@ -1,7 +1,25 @@
 {
-    "check_interval": "1m",
-    "summary_interval": "3m",
-    "streamers": [
-        "forsen"
-    ]
+    "check_interval": "2m",
+    "summary_interval": "10m",
+    "twitch": {
+        "http_proxy": "",
+        "socks_proxy": "",
+        "channels": [
+            "forsen"
+        ]
+    },
+    "kick": {
+        "http_proxy": "",
+        "socks_proxy": "",
+        "channels": [
+            "forsen"
+        ]
+    },
+    "youtube": {
+        "http_proxy": "127.0.0.1:10808",
+        "socks_proxy": "",
+        "channels": [
+            "forsen"
+        ]
+    }
 }

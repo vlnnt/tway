@@ -1,4 +1,4 @@
-package app
+package storage
 
 import (
 	"database/sql"
@@ -36,10 +36,13 @@ func NewStateStorage(
 func (ss *StateStorage) migrate() error {
 	_, err := ss.db.Exec(`
 		CREATE TABLE IF NOT EXISTS stream_states (
-			channel TEXT PRIMARY KEY,
+			platform TEXT NOT NULL,
+			channel TEXT NOT NULL,
 			is_live INTEGER NOT NULL,
 			stream_id TEXT NOT NULL,
-			updated_at DATETIME NOT NULL
+			updated_at DATETIME NOT NULL,
+
+			PRIMARY KEY (platform, channel)
 		);
 	`)
 	if err != nil {
@@ -58,25 +61,28 @@ func (ss *StateStorage) migrate() error {
 }
 
 func (ss *StateStorage) Get(
-	channel string,
+	platform, channel string,
 ) (*StreamState, error) {
 	ss.mu.RLock()
 	defer ss.mu.RUnlock()
 
 	row := ss.db.QueryRow(`
 		SELECT
+			platform,
 			channel,
 			is_live,
 			stream_id,
 			updated_at
 		FROM stream_states
-		WHERE channel = ?
-	`, channel)
+		WHERE platform = ?
+			AND channel = ?
+	`, platform, channel)
 
 	var state StreamState
 	var live int
 
 	err := row.Scan(
+		&state.Platform,
 		&state.Channel,
 		&live,
 		&state.StreamID,
@@ -103,18 +109,20 @@ func (ss *StateStorage) Save(
 
 	_, err := ss.db.Exec(`
 		INSERT INTO stream_states (
+			platform,
 			channel,
 			is_live,
 			stream_id,
 			updated_at
 		)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(channel)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(platform, channel)
 		DO UPDATE SET
 			is_live = excluded.is_live,
 			stream_id = excluded.stream_id,
 			updated_at = excluded.updated_at
 	`,
+		state.Platform,
 		state.Channel,
 		boolToInt(state.IsLive),
 		state.StreamID,

@@ -9,7 +9,27 @@ import (
 type Config struct {
 	CheckInterval   Duration `json:"check_interval"`
 	SummaryInterval Duration `json:"summary_interval"`
-	Streamers       []string `json:"streamers"`
+	Twitch          Twitch   `json:"twitch"`
+	Kick            Kick     `json:"kick"`
+	Youtube         Youtube  `json:"youtube"`
+}
+
+type Platform struct {
+	HTTPProxy  string   `json:"http_proxy"`
+	SocksProxy string   `json:"socks_proxy"`
+	Channels   []string `json:"channels"`
+}
+
+type Twitch struct {
+	Platform
+}
+
+type Kick struct {
+	Platform
+}
+
+type Youtube struct {
+	Platform
 }
 
 type Duration struct {

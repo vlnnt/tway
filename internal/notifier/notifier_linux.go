@@ -62,7 +62,7 @@ func (n *LinuxNotifier) Send(
 	if notification.URL != "" {
 		actions = []string{
 			"open",
-			"Open Twitch",
+			"Open",
 		}
 	}
 
@@ -113,7 +113,6 @@ func (n *LinuxNotifier) setupActionHandler() error {
 	go func() {
 
 		for signal := range signals {
-
 			if len(signal.Body) < 2 {
 				continue
 			}

@@ -1,21 +1,10 @@
 package twitch
 
-import "time"
-
 const (
 	apiURL             = "https://gql.twitch.tv/gql"
 	clientID           = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 	streamMetadataHash = "b57f9b910f8cd1a4659d894fe7550ccc81ec9052c01e438b290fd66a040b9b93"
 )
-
-type Stream struct {
-	ID        string
-	Channel   string
-	Title     string
-	Game      string
-	StartedAt time.Time
-	IsLive    bool
-}
 
 type persistedQuery struct {
 	Version    int    `json:"version"`

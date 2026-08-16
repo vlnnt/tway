@@ -8,80 +8,73 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
-	"tway/internal/config"
+	"tway/internal/client"
 	"tway/internal/notifier"
-	"tway/internal/twitch"
+	"tway/internal/storage"
 )
 
 type App struct {
-	icon     string
-	log      *zap.Logger
-	config   *config.Config
-	twitch   *twitch.Client
-	notifier notifier.Notifier
-	storage  *StateStorage
+	icon            string
+	log             *zap.Logger
+	platform        string
+	channels        []string
+	checkInterval   time.Duration
+	summaryInterval time.Duration
+	client          client.Client
+	notifier        notifier.Notifier
+	storage         *storage.StateStorage
 }
 
 func NewApp(
 	icon string,
 	log *zap.Logger,
-	cfg *config.Config,
-	twitchClient *twitch.Client,
+	platform string,
+	channels []string,
+	checkInterval time.Duration,
+	summaryInterval time.Duration,
+	client client.Client,
 	notificationService notifier.Notifier,
-	storage *StateStorage,
+	storage *storage.StateStorage,
 ) *App {
 	return &App{
-		icon:     icon,
-		log:      log,
-		config:   cfg,
-		twitch:   twitchClient,
-		notifier: notificationService,
-		storage:  storage,
+		icon:            icon,
+		log:             log,
+		platform:        platform,
+		channels:        channels,
+		checkInterval:   checkInterval,
+		summaryInterval: summaryInterval,
+		client:          client,
+		notifier:        notificationService,
+		storage:         storage,
 	}
 }
 
 func (a *App) Run(
 	ctx context.Context,
 ) error {
-	a.log.Info("App.Run",
-		zap.String("Run", "Starting the stream workers ..."))
-	a.sendOverallStatus()
+	a.log.Info(
+		"Starting platform worker",
+		zap.String("Platform", a.platform),
+		zap.Int("Channels", len(a.channels)),
+		zap.Duration("CheckInterval", a.checkInterval),
+		zap.Duration("SummaryInterval", a.summaryInterval),
+	)
 
 	group, ctx := errgroup.WithContext(ctx)
-	group.Go(func() error {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				a.log.Info(
-					"App.Run.ctx.Done",
-					zap.String("Worker", "Status summary"),
-				)
-				return nil
-
-			case <-ticker.C:
-				a.log.Info(
-					"App.Run.statusTicker",
-					zap.String("Run", "Updating overall stream status ..."),
-				)
-
-				a.sendOverallStatus()
-			}
-		}
-	})
-
-	for _, channel := range a.config.Streamers {
+	for _, channel := range a.channels {
 		group.Go(func(channel string) func() error {
 			return func() error {
-				ticker := time.NewTicker(
-					a.config.CheckInterval.Duration,
-				)
-
+				ticker := time.NewTicker(a.checkInterval)
 				defer ticker.Stop()
-				state, err := a.storage.Get(channel)
+
+				state, err := a.storage.Get(a.platform, channel)
 				if err != nil {
-					a.log.Error("App.Run.GetState", zap.Error(err))
+					a.log.Error(
+						"Failed to get stream state",
+						zap.String("Platform", a.platform),
+						zap.String("Channel", channel),
+						zap.Error(err),
+					)
 					return err
 				}
 
@@ -90,23 +83,43 @@ func (a *App) Run(
 					wasLive = state.IsLive
 				}
 
+				a.log.Info(
+					"Channel worker started",
+					zap.String("Platform", a.platform),
+					zap.String("Channel", channel),
+					zap.Bool("WasLive", wasLive),
+				)
+
 				for {
 					select {
 					case <-ctx.Done():
-						a.log.Info("App.Run.ctx.Done",
-							zap.String("Worker stopped:", channel))
+						a.log.Info(
+							"Channel worker stopped",
+							zap.String("Platform", a.platform),
+							zap.String("Channel", channel),
+						)
 						return nil
 
 					case <-ticker.C:
-						a.log.Info("App.Run.ticket.C",
-							zap.String("Checking stream ...", channel))
-						stream, err := a.twitch.GetStream(channel)
+						a.log.Info(
+							"Checking stream",
+							zap.String("Platform", a.platform),
+							zap.String("Channel", channel),
+						)
+						stream, err := a.client.GetStream(channel)
 						if err != nil {
-							a.log.Error("App.Run.GetStream", zap.Error(err))
+							a.log.Error(
+								"Failed to get stream",
+								zap.String("Platform", a.platform),
+								zap.String("Channel", channel),
+								zap.Error(err),
+							)
 							continue
 						}
 
-						a.log.Info("State",
+						a.log.Info(
+							"Stream status received",
+							zap.String("Platform", a.platform),
 							zap.String("Channel", channel),
 							zap.Bool("Live", stream.IsLive),
 							zap.String("Title", stream.Title),
@@ -114,8 +127,11 @@ func (a *App) Run(
 						)
 
 						if !wasLive && stream.IsLive {
-							a.log.Info("Stream started",
-								zap.String("Channel", channel))
+							a.log.Info(
+								"Stream started",
+								zap.String("Platform", a.platform),
+								zap.String("Channel", channel),
+							)
 							err := a.notifier.Send(notifier.Notification{
 								Title: channel + " is now live",
 								Message: fmt.Sprintf(
@@ -124,42 +140,57 @@ func (a *App) Run(
 									stream.Game,
 								),
 								Icon: a.icon,
-								URL:  "https://twitch.tv/" + channel,
+								URL:  stream.URL,
 							})
 							if err != nil {
-								a.log.Error("Notify failed",
-									zap.String("Channel", channel), zap.Error(err))
+								a.log.Error(
+									"Failed to send stream started notification",
+									zap.String("Platform", a.platform),
+									zap.String("Channel", channel),
+									zap.Error(err),
+								)
 							}
 
 							wasLive = true
 						}
 
 						if wasLive && !stream.IsLive {
-							a.log.Info("The stream has ended",
-								zap.String("Channel", channel))
+							a.log.Info(
+								"Stream ended",
+								zap.String("Platform", a.platform),
+								zap.String("Channel", channel),
+							)
 							err := a.notifier.Send(notifier.Notification{
 								Title:   channel + " is no longer live",
 								Message: "The streamer has left the broadcast",
 								Icon:    a.icon,
-								URL:     "https://twitch.tv/" + channel,
+								URL:     stream.URL + channel,
 							})
 							if err != nil {
-								a.log.Error("Notify failed",
-									zap.String("Channel", channel), zap.Error(err))
+								a.log.Error(
+									"Failed to send stream ended notification",
+									zap.String("Platform", a.platform),
+									zap.String("Channel", channel),
+									zap.Error(err),
+								)
 							}
 
 							wasLive = false
 						}
 
-						err = a.storage.Save(StreamState{
-							Channel:   channel,
-							IsLive:    stream.IsLive,
-							StreamID:  stream.ID,
-							UpdatedAt: time.Now(),
-						})
+						err = a.storage.Save(
+							storage.StreamState{
+								Platform:  a.platform,
+								Channel:   channel,
+								IsLive:    stream.IsLive,
+								StreamID:  stream.ID,
+								UpdatedAt: time.Now(),
+							},
+						)
 						if err != nil {
 							a.log.Error(
-								"Save state failed",
+								"Failed to save stream state",
+								zap.String("Platform", a.platform),
 								zap.String("Channel", channel),
 								zap.Error(err),
 							)
@@ -170,61 +201,10 @@ func (a *App) Run(
 		}(channel))
 	}
 
-	a.log.Info("App.Run",
-		zap.String("Run", "All stream workers are running!"))
-	return group.Wait()
-}
-
-func (a *App) sendOverallStatus() {
-	a.log.Info("App.sendOverallStatus",
-		zap.String("sendOverallStatus",
-			"Processing summary stream status ..."))
-	online, offline := 0, 0
-	for _, channel := range a.config.Streamers {
-		stream, err := a.twitch.GetStream(channel)
-		if err != nil {
-			a.log.Error(
-				"App.sendOverallStatus.GetStream",
-				zap.String("Channel", channel),
-				zap.Error(err),
-			)
-			continue
-		}
-
-		if stream.IsLive {
-			online++
-		} else {
-			offline++
-		}
-	}
-
-	if online+offline == 0 {
-		a.log.Warn(
-			"App.sendOverallStatus",
-			zap.String("Run", "No stream statuses received"),
-		)
-		return
-	}
-
-	status := fmt.Sprintf(
-		"🟢 Online: %d\n🔴 Offline: %d",
-		online,
-		offline,
+	a.log.Info(
+		"Platform watcher started",
+		zap.String("Platform", a.platform),
+		zap.Int("Workers", len(a.channels)+1),
 	)
-
-	if err := a.notifier.Send(
-		notifier.Notification{
-			Title:   "tway",
-			Message: status,
-			Icon:    a.icon,
-		},
-	); err != nil {
-		a.log.Error(
-			"App.sendOverallStatus.Send",
-			zap.Error(err),
-		)
-	}
-	a.log.Info("App.sendOverallStatus",
-		zap.String("sendOverallStatus",
-			"Summary stream status processed!"))
+	return group.Wait()
 }
