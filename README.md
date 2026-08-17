@@ -36,7 +36,7 @@ Create `stream.json`:
       "http_proxy": "127.0.0.1:10808",
       "socks_proxy": "",
       "channels": [
-        "UCjyqq9MiwSrSWBYeqpVb6Pg",
+        "LofiGirl",
       ]
   }
 }
