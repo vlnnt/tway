@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
 	"tway/internal/client"
 
 	"github.com/valyala/fasthttp"
@@ -43,14 +44,22 @@ func NewClient(
 	switch {
 	case socksProxy != "":
 		httpClient.Dial = fasthttpproxy.FasthttpSocksDialer(socksProxy)
-		log.Info("Using SOCKS proxy for YouTube")
+
+		log.Info(
+			"Using SOCKS proxy for YouTube",
+			zap.String("Proxy", socksProxy),
+		)
 
 	case httpProxy != "":
 		httpClient.Dial = fasthttpproxy.FasthttpHTTPDialerTimeout(
 			httpProxy,
 			10*time.Second,
 		)
-		log.Info("Using HTTP proxy for YouTube")
+
+		log.Info(
+			"Using HTTP proxy for YouTube",
+			zap.String("Proxy", httpProxy),
+		)
 
 	default:
 		log.Info("Using direct connection for YouTube")
@@ -67,6 +76,7 @@ func (c *Client) GetStream(
 	channel string,
 ) (*client.Stream, error) {
 	channel = strings.TrimSpace(channel)
+	channel = strings.TrimPrefix(channel, "@")
 	if channel == "" {
 		return nil, fmt.Errorf(
 			"channel cannot be empty",
@@ -83,7 +93,7 @@ func (c *Client) GetStream(
 		lastErr = err
 		if attempt < maxAttempts {
 			c.log.Warn(
-				"YouTube GetStream failed, retrying ...",
+				"Failed to get YouTube stream, retrying",
 				zap.String("Channel", channel),
 				zap.Int("Attempt", attempt),
 				zap.Int("MaxAttempts", maxAttempts),
@@ -95,7 +105,7 @@ func (c *Client) GetStream(
 	}
 
 	return nil, fmt.Errorf(
-		"failed to get stream %q after %d attempts: %w",
+		"failed to get YouTube stream %q after %d attempts: %w",
 		channel,
 		maxAttempts,
 		lastErr,
@@ -106,24 +116,27 @@ func (c *Client) getStream(
 	channel string,
 ) (*client.Stream, error) {
 	c.log.Info(
-		"Checking YouTube channel ...",
+		"Checking YouTube channel",
 		zap.String("Channel", channel),
 	)
 
 	videoID, err := c.resolveLiveVideoID(channel)
 	if err != nil {
-		return nil, fmt.Errorf("resolve live video: %w", err)
+		return nil, fmt.Errorf(
+			"resolve YouTube live video: %w",
+			err,
+		)
 	}
 
 	if videoID == "" {
 		c.log.Info(
-			"Channel is offline",
+			"YouTube channel is offline",
 			zap.String("Channel", channel),
 		)
 
 		return &client.Stream{
 			Channel: channel,
-			URL:     "https://www.youtube.com/channel/" + channel,
+			URL:     "https://www.youtube.com/@" + channel,
 			IsLive:  false,
 		}, nil
 	}
@@ -133,17 +146,23 @@ func (c *Client) getStream(
 		videoID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("get player info: %w", err)
+		return nil, fmt.Errorf(
+			"get YouTube player info: %w",
+			err,
+		)
 	}
 
 	if !stream.IsLive {
 		c.log.Info(
-			"Channel is offline", zap.String("Channel", channel))
+			"YouTube channel is offline",
+			zap.String("Channel", channel),
+		)
+
 		return stream, nil
 	}
 
 	c.log.Info(
-		"LIVE",
+		"YouTube channel is live",
 		zap.String("Channel", stream.Channel),
 		zap.String("Game", stream.Game),
 		zap.String("Title", stream.Title),
@@ -162,15 +181,12 @@ func (c *Client) resolveLiveVideoID(
 				ClientVersion: clientVersion,
 			},
 		},
-		URL: "https://www.youtube.com/channel/" + channel + "/live",
+		URL: "https://www.youtube.com/@" + channel + "/live",
 	}
 
 	body, err := json.Marshal(requestBody)
 	if err != nil {
-		return "", fmt.Errorf(
-			"encode request: %w",
-			err,
-		)
+		return "", fmt.Errorf("encode YouTube resolve request: %w", err)
 	}
 
 	request := fasthttp.AcquireRequest()
@@ -189,7 +205,7 @@ func (c *Client) resolveLiveVideoID(
 	request.SetBody(body)
 
 	c.log.Info(
-		"Sending request",
+		"Sending YouTube resolve request",
 		zap.String("URL", resolveURL),
 	)
 
@@ -198,18 +214,23 @@ func (c *Client) resolveLiveVideoID(
 		response,
 		c.timeout,
 	); err != nil {
-		return "", fmt.Errorf("send request: %w", err)
+		return "", fmt.Errorf("send YouTube resolve request: %w", err)
 	}
 
 	c.log.Info(
-		"HTTP Status",
-		zap.Int("Code", response.StatusCode()),
+		"YouTube resolve response received",
+		zap.Int("StatusCode", response.StatusCode()),
 	)
 
 	if response.StatusCode() != fasthttp.StatusOK {
-		c.log.Info("Response", zap.ByteString("Body", response.Body()))
+		c.log.Warn(
+			"YouTube resolve endpoint returned an unexpected response",
+			zap.Int("StatusCode", response.StatusCode()),
+			zap.ByteString("Body", response.Body()),
+		)
+
 		return "", fmt.Errorf(
-			"youtube resolve returned status %d: %s",
+			"YouTube resolve endpoint returned status %d: %s",
 			response.StatusCode(),
 			string(response.Body()),
 		)
@@ -220,7 +241,7 @@ func (c *Client) resolveLiveVideoID(
 		response.Body(),
 		&result,
 	); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
+		return "", fmt.Errorf("decode YouTube resolve response: %w", err)
 	}
 
 	return result.Endpoint.WatchEndpoint.VideoID, nil
@@ -242,10 +263,7 @@ func (c *Client) getPlayerStream(
 
 	body, err := json.Marshal(requestBody)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"encode request: %w",
-			err,
-		)
+		return nil, fmt.Errorf("encode YouTube player request: %w", err)
 	}
 
 	request := fasthttp.AcquireRequest()
@@ -264,7 +282,7 @@ func (c *Client) getPlayerStream(
 	request.SetBody(body)
 
 	c.log.Info(
-		"Sending request",
+		"Sending YouTube player request",
 		zap.String("URL", playerURL),
 		zap.String("VideoID", videoID),
 	)
@@ -275,24 +293,25 @@ func (c *Client) getPlayerStream(
 		c.timeout,
 	); err != nil {
 		return nil, fmt.Errorf(
-			"send request: %w",
+			"send YouTube player request: %w",
 			err,
 		)
 	}
 
 	c.log.Info(
-		"HTTP Status",
-		zap.Int("Code", response.StatusCode()),
+		"YouTube player response received",
+		zap.Int("StatusCode", response.StatusCode()),
 	)
 
 	if response.StatusCode() != fasthttp.StatusOK {
-		c.log.Info(
-			"Response",
+		c.log.Warn(
+			"YouTube player endpoint returned an unexpected response",
+			zap.Int("StatusCode", response.StatusCode()),
 			zap.ByteString("Body", response.Body()),
 		)
 
 		return nil, fmt.Errorf(
-			"youtube player returned status %d: %s",
+			"YouTube player endpoint returned status %d: %s",
 			response.StatusCode(),
 			string(response.Body()),
 		)
@@ -303,7 +322,7 @@ func (c *Client) getPlayerStream(
 		response.Body(),
 		&result,
 	); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+		return nil, fmt.Errorf("decode YouTube player response: %w", err)
 	}
 
 	streamResult := &client.Stream{
@@ -311,10 +330,6 @@ func (c *Client) getPlayerStream(
 		Channel: channel,
 		URL:     "https://www.youtube.com/watch?v=" + videoID,
 		IsLive:  false,
-	}
-
-	if result.VideoDetails.Author != "" {
-		streamResult.Channel = result.VideoDetails.Author
 	}
 
 	live := result.Microformat.
@@ -330,7 +345,10 @@ func (c *Client) getPlayerStream(
 		live.StartTimestamp,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("parse stream start time: %w", err)
+		return nil, fmt.Errorf(
+			"parse YouTube stream start time: %w",
+			err,
+		)
 	}
 
 	streamResult.ID = result.VideoDetails.VideoID

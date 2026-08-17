@@ -61,6 +61,7 @@ func (a *App) Run(
 	)
 
 	group, ctx := errgroup.WithContext(ctx)
+
 	for _, channel := range a.channels {
 		group.Go(func(channel string) func() error {
 			return func() error {
@@ -70,7 +71,7 @@ func (a *App) Run(
 				state, err := a.storage.Get(a.platform, channel)
 				if err != nil {
 					a.log.Error(
-						"Failed to get stream state",
+						"Failed to load stream state",
 						zap.String("Platform", a.platform),
 						zap.String("Channel", channel),
 						zap.Error(err),
@@ -98,6 +99,7 @@ func (a *App) Run(
 							zap.String("Platform", a.platform),
 							zap.String("Channel", channel),
 						)
+
 						return nil
 
 					case <-ticker.C:
@@ -106,6 +108,7 @@ func (a *App) Run(
 							zap.String("Platform", a.platform),
 							zap.String("Channel", channel),
 						)
+
 						stream, err := a.client.GetStream(channel)
 						if err != nil {
 							a.log.Error(
@@ -114,11 +117,12 @@ func (a *App) Run(
 								zap.String("Channel", channel),
 								zap.Error(err),
 							)
+
 							continue
 						}
 
 						a.log.Info(
-							"Stream status received",
+							"Stream status updated",
 							zap.String("Platform", a.platform),
 							zap.String("Channel", channel),
 							zap.Bool("Live", stream.IsLive),
@@ -132,19 +136,23 @@ func (a *App) Run(
 								zap.String("Platform", a.platform),
 								zap.String("Channel", channel),
 							)
-							err := a.notifier.Send(notifier.Notification{
-								Title: channel + " is now live",
-								Message: fmt.Sprintf(
-									"%s\nCategory: %s",
-									stream.Title,
-									stream.Game,
-								),
-								Icon: a.icon,
-								URL:  stream.URL,
-							})
+
+							err := a.notifier.Send(
+								notifier.Notification{
+									Title: channel + " is now live",
+									Message: fmt.Sprintf(
+										"%s\nCategory: %s",
+										stream.Title,
+										stream.Game,
+									),
+									Icon: a.icon,
+									URL:  stream.URL,
+								},
+							)
+
 							if err != nil {
 								a.log.Error(
-									"Failed to send stream started notification",
+									"Failed to send stream start notification",
 									zap.String("Platform", a.platform),
 									zap.String("Channel", channel),
 									zap.Error(err),
@@ -160,15 +168,19 @@ func (a *App) Run(
 								zap.String("Platform", a.platform),
 								zap.String("Channel", channel),
 							)
-							err := a.notifier.Send(notifier.Notification{
-								Title:   channel + " is no longer live",
-								Message: "The streamer has left the broadcast",
-								Icon:    a.icon,
-								URL:     stream.URL + channel,
-							})
+
+							err := a.notifier.Send(
+								notifier.Notification{
+									Title:   channel + " is no longer live",
+									Message: "The streamer has left the broadcast",
+									Icon:    a.icon,
+									URL:     stream.URL + channel,
+								},
+							)
+
 							if err != nil {
 								a.log.Error(
-									"Failed to send stream ended notification",
+									"Failed to send stream end notification",
 									zap.String("Platform", a.platform),
 									zap.String("Channel", channel),
 									zap.Error(err),
@@ -187,6 +199,7 @@ func (a *App) Run(
 								UpdatedAt: time.Now(),
 							},
 						)
+
 						if err != nil {
 							a.log.Error(
 								"Failed to save stream state",
@@ -202,9 +215,10 @@ func (a *App) Run(
 	}
 
 	a.log.Info(
-		"Platform watcher started",
+		"Platform worker started",
 		zap.String("Platform", a.platform),
-		zap.Int("Workers", len(a.channels)+1),
+		zap.Int("Workers", len(a.channels)),
 	)
+
 	return group.Wait()
 }

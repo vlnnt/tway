@@ -45,7 +45,7 @@ func (t *Tray) onReady() {
 	systray.SetIcon(icon)
 
 	show := systray.AddMenuItem(
-		"Show Status",
+		"Show status",
 		"Show streamers status",
 	)
 

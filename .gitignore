@@ -1,1 +1,5 @@
 /app
+/tway-linux-amd64
+/tway-windows-amd64
+*.tar.gz
+*.zip

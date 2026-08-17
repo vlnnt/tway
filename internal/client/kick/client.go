@@ -36,14 +36,21 @@ func NewClient(
 	switch {
 	case socksProxy != "":
 		httpClient.Dial = fasthttpproxy.FasthttpSocksDialer(socksProxy)
-		log.Info("Using SOCKS proxy for Kick")
+		log.Info(
+			"Using SOCKS proxy for Kick",
+			zap.String("Proxy", socksProxy),
+		)
 
 	case httpProxy != "":
 		httpClient.Dial = fasthttpproxy.FasthttpHTTPDialerTimeout(
 			httpProxy,
 			10*time.Second,
 		)
-		log.Info("Using HTTP proxy for Kick")
+
+		log.Info(
+			"Using HTTP proxy for Kick",
+			zap.String("Proxy", httpProxy),
+		)
 
 	default:
 		log.Info("Using direct connection for Kick")
@@ -76,7 +83,7 @@ func (c *Client) GetStream(
 		lastErr = err
 		if attempt < maxAttempts {
 			c.log.Warn(
-				"Kick GetStream failed, retrying ...",
+				"Failed to get Kick stream, retrying",
 				zap.String("Channel", channel),
 				zap.Int("Attempt", attempt),
 				zap.Int("MaxAttempts", maxAttempts),
@@ -88,7 +95,7 @@ func (c *Client) GetStream(
 	}
 
 	return nil, fmt.Errorf(
-		"failed to get stream %q after %d attempts: %w",
+		"failed to get Kick stream %q after %d attempts: %w",
 		channel,
 		maxAttempts,
 		lastErr,
@@ -104,7 +111,7 @@ func (c *Client) getStream(
 	)
 
 	c.log.Info(
-		"Checking Kick channel ...",
+		"Checking Kick channel",
 		zap.String("Channel", channel),
 	)
 
@@ -133,7 +140,7 @@ func (c *Client) getStream(
 	)
 
 	c.log.Info(
-		"Sending request",
+		"Sending Kick request",
 		zap.String("URL", apiURL),
 	)
 
@@ -142,42 +149,31 @@ func (c *Client) getStream(
 		response,
 		c.timeout,
 	); err != nil {
-		return nil, fmt.Errorf(
-			"send request: %w",
-			err,
-		)
+		return nil, fmt.Errorf("send Kick request: %w", err)
 	}
 
 	c.log.Info(
-		"HTTP Status",
-		zap.Int("Code", response.StatusCode()),
+		"Kick response received",
+		zap.Int("StatusCode", response.StatusCode()),
 	)
 
 	if response.StatusCode() != fasthttp.StatusOK {
-		c.log.Info(
-			"Response",
-			zap.ByteString(
-				"Body",
-				response.Body(),
-			),
+		c.log.Warn(
+			"Kick returned an unexpected response",
+			zap.Int("StatusCode", response.StatusCode()),
+			zap.ByteString("Body", response.Body()),
 		)
 
 		return nil, fmt.Errorf(
-			"kick returned status %d: %s",
+			"Kick returned status %d: %s",
 			response.StatusCode(),
 			string(response.Body()),
 		)
 	}
 
 	var data channelResponse
-	if err := json.Unmarshal(
-		response.Body(),
-		&data,
-	); err != nil {
-		return nil, fmt.Errorf(
-			"decode response: %w",
-			err,
-		)
+	if err := json.Unmarshal(response.Body(), &data); err != nil {
+		return nil, fmt.Errorf("decode Kick response: %w", err)
 	}
 
 	streamResult := &client.Stream{
@@ -188,7 +184,7 @@ func (c *Client) getStream(
 
 	if data.Livestream == nil {
 		c.log.Info(
-			"Channel is offline",
+			"Kick channel is offline",
 			zap.String("Channel", channel),
 		)
 
@@ -206,10 +202,7 @@ func (c *Client) getStream(
 		data.Livestream.CreatedAt,
 	)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"parse stream start time: %w",
-			err,
-		)
+		return nil, fmt.Errorf("parse Kick stream start time: %w", err)
 	}
 
 	streamResult.StartedAt = startedAt
@@ -218,7 +211,7 @@ func (c *Client) getStream(
 	}
 
 	c.log.Info(
-		"LIVE",
+		"Kick channel is live",
 		zap.String("Channel", channel),
 		zap.String("Game", streamResult.Game),
 		zap.String("Title", streamResult.Title),
