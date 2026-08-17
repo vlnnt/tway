@@ -34,11 +34,11 @@ go build \
 
 echo "==> Copying config and icon..."
 
-cp stream/stream.json "$LINUX_DIR/"
-cp stream/twitch.ico "$LINUX_DIR/"
+cp config/config.json "$LINUX_DIR/"
+cp assets/tway.ico "$LINUX_DIR/"
 
-cp stream/stream.json "$WINDOWS_DIR/"
-cp stream/twitch.ico "$WINDOWS_DIR/"
+cp config/config.json "$WINDOWS_DIR/"
+cp assets/tway.ico "$WINDOWS_DIR/"
 
 echo "==> Creating Linux archive..."
 

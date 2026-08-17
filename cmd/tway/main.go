@@ -37,8 +37,8 @@ func main() {
 	}
 
 	exeDir := filepath.Dir(exePath)
-	configPath := filepath.Join(exeDir, "stream.json")
-	iconPath := filepath.Join(exeDir, "twitch.ico")
+	configPath := filepath.Join(exeDir, "config.json")
+	iconPath := filepath.Join(exeDir, "tway.ico")
 
 	logger.Info("Icon path", zap.String("Path", iconPath))
 	if len(os.Args) >= 2 && os.Args[1] != "--tui" {

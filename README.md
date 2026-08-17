@@ -12,7 +12,7 @@ Cross-platform Twitch stream watcher with desktop notifications.
 
 ## Config
 
-Create `stream.json`:
+Create `config.json`:
 
 ```json
 {
@@ -22,21 +22,21 @@ Create `stream.json`:
       "http_proxy": "127.0.0.1:10808",
       "socks_proxy": "",
       "channels": [
-          "defaultstreamer",
+          "forsen",
       ]
   },
   "kick": {
       "http_proxy": "",
       "socks_proxy": "127.0.0.1:10808",
       "channels": [
-        "defaultstreamer",
+        "forsen",
       ]
   },
   "youtube": {
       "http_proxy": "127.0.0.1:10808",
       "socks_proxy": "",
       "channels": [
-        "LofiGirl",
+        "forsen",
       ]
   }
 }
@@ -67,14 +67,6 @@ Windows release:
 ```bash
 go build -ldflags="-H windowsgui" -o app/tway.exe ./cmd/tway
 ```
-
-## Tech Stack
-
-- Go
-- Twitch GraphQL API
-- Windows Toast Notifications
-- Linux D-Bus Notifications
-- System Tray
 
 ## License
 
