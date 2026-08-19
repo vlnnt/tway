@@ -1,13 +1,28 @@
 package youtube
 
-type innertubeContext struct {
-	Client innertubeClient `json:"client"`
-}
+const (
+	maxAttempts       = 3
+	baseUrl           = "https://www.youtube.com/@"
+	baseWatchUrl      = "https://www.youtube.com/watch?v="
+	channelUrl        = "https://www.youtube.com/channel/"
+	resolveUrl        = "https://www.youtube.com/youtubei/v1/navigation/resolve_url?prettyPrint=false"
+	playerUrl         = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"
+	acceptHeader      = "application/json"
+	contentTypeHeader = "application/json"
+	userAgent         = "Mozilla/5.0"
+	clientName        = "WEB"
+	clientNameID      = "1"
+	clientVersion     = "2.20260708.00.00"
+)
 
 type innertubeClient struct {
 	ClientName    string `json:"clientName"`
 	ClientVersion string `json:"clientVersion"`
 	HL            string `json:"hl,omitempty"`
+}
+
+type innertubeContext struct {
+	Client innertubeClient `json:"client"`
 }
 
 type resolveRequest struct {
@@ -20,6 +35,10 @@ type resolveResponse struct {
 		WatchEndpoint struct {
 			VideoID string `json:"videoId"`
 		} `json:"watchEndpoint"`
+
+		BrowseEndpoint struct {
+			BrowseID string `json:"browseId"`
+		} `json:"browseEndpoint"`
 	} `json:"endpoint"`
 }
 

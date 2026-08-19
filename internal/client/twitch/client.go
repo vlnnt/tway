@@ -13,8 +13,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const maxAttempts = 3
-
 type Client struct {
 	log        *zap.Logger
 	httpClient *fasthttp.Client
@@ -86,7 +84,7 @@ func (c *Client) GetStream(
 				"Failed to get Twitch stream, retrying",
 				zap.String("Channel", channel),
 				zap.Int("Attempt", attempt),
-				zap.Int("MaxAttempts", maxAttempts),
+				zap.Int("Max attempts", maxAttempts),
 				zap.Error(err),
 			)
 
@@ -131,11 +129,10 @@ func (c *Client) getStream(
 
 	request := fasthttp.AcquireRequest()
 	response := fasthttp.AcquireResponse()
-
 	defer fasthttp.ReleaseRequest(request)
 	defer fasthttp.ReleaseResponse(response)
 
-	request.SetRequestURI(apiURL)
+	request.SetRequestURI(url)
 	request.Header.SetMethod(fasthttp.MethodPost)
 	request.Header.SetContentType("application/json")
 	request.Header.Set("Client-ID", clientID)
@@ -144,7 +141,7 @@ func (c *Client) getStream(
 
 	c.log.Info(
 		"Sending Twitch request",
-		zap.String("URL", apiURL),
+		zap.String("URL", url),
 	)
 
 	if err := c.httpClient.DoTimeout(
@@ -157,13 +154,13 @@ func (c *Client) getStream(
 
 	c.log.Info(
 		"Twitch response received",
-		zap.Int("StatusCode", response.StatusCode()),
+		zap.Int("Status code", response.StatusCode()),
 	)
 
 	if response.StatusCode() != fasthttp.StatusOK {
 		c.log.Warn(
 			"Twitch returned an unexpected response",
-			zap.Int("StatusCode", response.StatusCode()),
+			zap.Int("Status code", response.StatusCode()),
 			zap.ByteString("Body", response.Body()),
 		)
 
@@ -174,35 +171,32 @@ func (c *Client) getStream(
 		)
 	}
 
-	var result streamMetadataResponse
+	var streamMetadataResponse streamMetadataResponse
 	if err := json.Unmarshal(
 		response.Body(),
-		&result,
+		&streamMetadataResponse,
 	); err != nil {
 		return nil, fmt.Errorf("decode Twitch response: %w", err)
 	}
 
-	if len(result.Errors) > 0 {
+	if len(streamMetadataResponse.Errors) > 0 {
 		return nil, fmt.Errorf(
 			"Twitch GraphQL error: %s",
-			result.Errors[0].Message,
+			streamMetadataResponse.Errors[0].Message,
 		)
 	}
 
-	if result.Data.User == nil {
-		return nil, fmt.Errorf(
-			"Twitch channel %q not found",
-			channel,
-		)
+	if streamMetadataResponse.Data.User == nil {
+		return nil, fmt.Errorf("Twitch channel %q not found", channel)
 	}
 
 	streamResult := &client.Stream{
 		Channel: channel,
-		URL:     "https://twitch.tv/" + channel,
+		URL:     baseUrl + channel,
 		IsLive:  false,
 	}
 
-	if result.Data.User.Stream == nil {
+	if streamMetadataResponse.Data.User.Stream == nil {
 		c.log.Info(
 			"Twitch channel is offline",
 			zap.String("Channel", channel),
@@ -211,20 +205,17 @@ func (c *Client) getStream(
 		return streamResult, nil
 	}
 
-	stream := result.Data.User.Stream
+	stream := streamMetadataResponse.Data.User.Stream
 	startedAt, err := time.Parse(
 		time.RFC3339,
 		stream.CreatedAt,
 	)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"parse Twitch stream start time: %w",
-			err,
-		)
+		return nil, fmt.Errorf("parse Twitch stream start time: %w", err)
 	}
 
 	streamResult.ID = stream.ID
-	streamResult.Title = result.Data.User.LastBroadcast.Title
+	streamResult.Title = streamMetadataResponse.Data.User.LastBroadcast.Title
 	streamResult.Game = stream.Game.Name
 	streamResult.StartedAt = startedAt
 	streamResult.IsLive = stream.Type == "live"

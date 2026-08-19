@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"tway/internal/client"
@@ -13,21 +14,12 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	maxAttempts = 3
-
-	resolveURL = "https://www.youtube.com/youtubei/v1/navigation/resolve_url?prettyPrint=false"
-	playerURL  = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"
-
-	clientName    = "WEB"
-	clientNameID  = "1"
-	clientVersion = "2.20260708.00.00"
-)
-
 type Client struct {
-	log        *zap.Logger
-	httpClient *fasthttp.Client
-	timeout    time.Duration
+	log          *zap.Logger
+	httpClient   *fasthttp.Client
+	timeout      time.Duration
+	channelIDsMu sync.RWMutex
+	channelIDs   map[string]string
 }
 
 func NewClient(
@@ -69,6 +61,7 @@ func NewClient(
 		log:        log,
 		httpClient: httpClient,
 		timeout:    10 * time.Second,
+		channelIDs: make(map[string]string),
 	}
 }
 
@@ -96,7 +89,7 @@ func (c *Client) GetStream(
 				"Failed to get YouTube stream, retrying",
 				zap.String("Channel", channel),
 				zap.Int("Attempt", attempt),
-				zap.Int("MaxAttempts", maxAttempts),
+				zap.Int("Max attempts", maxAttempts),
 				zap.Error(err),
 			)
 
@@ -120,12 +113,14 @@ func (c *Client) getStream(
 		zap.String("Channel", channel),
 	)
 
-	videoID, err := c.resolveLiveVideoID(channel)
+	channelID, err := c.resolveChannelID(channel)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"resolve YouTube live video: %w",
-			err,
-		)
+		return nil, fmt.Errorf("resolve YouTube channel ID: %w", err)
+	}
+
+	videoID, err := c.resolveLiveVideoID(channelID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve YouTube live video: %w", err)
 	}
 
 	if videoID == "" {
@@ -136,7 +131,7 @@ func (c *Client) getStream(
 
 		return &client.Stream{
 			Channel: channel,
-			URL:     "https://www.youtube.com/@" + channel,
+			URL:     baseUrl + channel,
 			IsLive:  false,
 		}, nil
 	}
@@ -146,10 +141,7 @@ func (c *Client) getStream(
 		videoID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"get YouTube player info: %w",
-			err,
-		)
+		return nil, fmt.Errorf("get YouTube player info: %w", err)
 	}
 
 	if !stream.IsLive {
@@ -171,8 +163,105 @@ func (c *Client) getStream(
 	return stream, nil
 }
 
-func (c *Client) resolveLiveVideoID(
+func (c *Client) resolveChannelID(
 	channel string,
+) (string, error) {
+	c.channelIDsMu.RLock()
+	channelID, ok := c.channelIDs[channel]
+	c.channelIDsMu.RUnlock()
+
+	if ok {
+		return channelID, nil
+	}
+
+	requestBody := resolveRequest{
+		Context: innertubeContext{
+			Client: innertubeClient{
+				ClientName:    clientName,
+				ClientVersion: clientVersion,
+			},
+		},
+		URL: baseUrl + channel,
+	}
+
+	body, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("encode YouTube channel resolve request: %w", err)
+	}
+
+	request := fasthttp.AcquireRequest()
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(request)
+	defer fasthttp.ReleaseResponse(response)
+
+	request.SetRequestURI(resolveUrl)
+	request.Header.SetMethod(fasthttp.MethodPost)
+	request.Header.SetContentType(contentTypeHeader)
+	request.Header.Set("Accept", acceptHeader)
+	request.Header.Set("User-Agent", userAgent)
+	request.Header.Set("X-Youtube-Client-Name", clientNameID)
+	request.Header.Set("X-Youtube-Client-Version", clientVersion)
+	request.SetBody(body)
+
+	c.log.Info(
+		"Sending YouTube channel resolve request",
+		zap.String("Channel", channel),
+	)
+
+	if err := c.httpClient.DoTimeout(
+		request,
+		response,
+		c.timeout,
+	); err != nil {
+		return "", fmt.Errorf("send YouTube channel resolve request: %w", err)
+	}
+
+	c.log.Info(
+		"YouTube channel resolve response received",
+		zap.Int("Status code", response.StatusCode()),
+	)
+
+	if response.StatusCode() != fasthttp.StatusOK {
+		c.log.Warn(
+			"YouTube channel resolve endpoint returned an unexpected response",
+			zap.Int("Status code", response.StatusCode()),
+			zap.ByteString("Body", response.Body()),
+		)
+
+		return "", fmt.Errorf(
+			"YouTube channel resolve endpoint returned status %d: %s",
+			response.StatusCode(),
+			string(response.Body()),
+		)
+	}
+
+	var resolveResponse resolveResponse
+	if err := json.Unmarshal(
+		response.Body(), &resolveResponse,
+	); err != nil {
+		return "", fmt.Errorf("decode YouTube channel resolve response: %w", err)
+	}
+
+	channelID = resolveResponse.Endpoint.BrowseEndpoint.BrowseID
+	if channelID == "" {
+		return "", fmt.Errorf("YouTube channel %q not found", channel)
+	}
+
+	c.channelIDsMu.Lock()
+	c.channelIDs[channel] = channelID
+	c.channelIDsMu.Unlock()
+
+	c.log.Info(
+		"YouTube channel ID resolved",
+		zap.String("Channel", channel),
+		zap.String("ChannelID", channelID),
+	)
+
+	return channelID, nil
+}
+
+func (c *Client) resolveLiveVideoID(
+	channelID string,
 ) (string, error) {
 	requestBody := resolveRequest{
 		Context: innertubeContext{
@@ -181,7 +270,7 @@ func (c *Client) resolveLiveVideoID(
 				ClientVersion: clientVersion,
 			},
 		},
-		URL: "https://www.youtube.com/@" + channel + "/live",
+		URL: channelUrl + channelID + "/live",
 	}
 
 	body, err := json.Marshal(requestBody)
@@ -191,22 +280,21 @@ func (c *Client) resolveLiveVideoID(
 
 	request := fasthttp.AcquireRequest()
 	response := fasthttp.AcquireResponse()
-
 	defer fasthttp.ReleaseRequest(request)
 	defer fasthttp.ReleaseResponse(response)
 
-	request.SetRequestURI(resolveURL)
+	request.SetRequestURI(resolveUrl)
 	request.Header.SetMethod(fasthttp.MethodPost)
-	request.Header.SetContentType("application/json")
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "Mozilla/5.0")
+	request.Header.SetContentType(contentTypeHeader)
+	request.Header.Set("Accept", acceptHeader)
+	request.Header.Set("User-Agent", userAgent)
 	request.Header.Set("X-Youtube-Client-Name", clientNameID)
 	request.Header.Set("X-Youtube-Client-Version", clientVersion)
 	request.SetBody(body)
 
 	c.log.Info(
 		"Sending YouTube resolve request",
-		zap.String("URL", resolveURL),
+		zap.String("ChannelID", channelID),
 	)
 
 	if err := c.httpClient.DoTimeout(
@@ -219,13 +307,13 @@ func (c *Client) resolveLiveVideoID(
 
 	c.log.Info(
 		"YouTube resolve response received",
-		zap.Int("StatusCode", response.StatusCode()),
+		zap.Int("Status code", response.StatusCode()),
 	)
 
 	if response.StatusCode() != fasthttp.StatusOK {
 		c.log.Warn(
 			"YouTube resolve endpoint returned an unexpected response",
-			zap.Int("StatusCode", response.StatusCode()),
+			zap.Int("Status code", response.StatusCode()),
 			zap.ByteString("Body", response.Body()),
 		)
 
@@ -236,15 +324,14 @@ func (c *Client) resolveLiveVideoID(
 		)
 	}
 
-	var result resolveResponse
+	var resolveResponse resolveResponse
 	if err := json.Unmarshal(
-		response.Body(),
-		&result,
+		response.Body(), &resolveResponse,
 	); err != nil {
 		return "", fmt.Errorf("decode YouTube resolve response: %w", err)
 	}
 
-	return result.Endpoint.WatchEndpoint.VideoID, nil
+	return resolveResponse.Endpoint.WatchEndpoint.VideoID, nil
 }
 
 func (c *Client) getPlayerStream(
@@ -268,22 +355,21 @@ func (c *Client) getPlayerStream(
 
 	request := fasthttp.AcquireRequest()
 	response := fasthttp.AcquireResponse()
-
 	defer fasthttp.ReleaseRequest(request)
 	defer fasthttp.ReleaseResponse(response)
 
-	request.SetRequestURI(playerURL)
+	request.SetRequestURI(playerUrl)
 	request.Header.SetMethod(fasthttp.MethodPost)
-	request.Header.SetContentType("application/json")
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "Mozilla/5.0")
+	request.Header.SetContentType(contentTypeHeader)
+	request.Header.Set("Accept", acceptHeader)
+	request.Header.Set("User-Agent", userAgent)
 	request.Header.Set("X-Youtube-Client-Name", clientNameID)
 	request.Header.Set("X-Youtube-Client-Version", clientVersion)
 	request.SetBody(body)
 
 	c.log.Info(
 		"Sending YouTube player request",
-		zap.String("URL", playerURL),
+		zap.String("URL", playerUrl),
 		zap.String("VideoID", videoID),
 	)
 
@@ -292,21 +378,18 @@ func (c *Client) getPlayerStream(
 		response,
 		c.timeout,
 	); err != nil {
-		return nil, fmt.Errorf(
-			"send YouTube player request: %w",
-			err,
-		)
+		return nil, fmt.Errorf("send YouTube player request: %w", err)
 	}
 
 	c.log.Info(
 		"YouTube player response received",
-		zap.Int("StatusCode", response.StatusCode()),
+		zap.Int("Status code", response.StatusCode()),
 	)
 
 	if response.StatusCode() != fasthttp.StatusOK {
 		c.log.Warn(
 			"YouTube player endpoint returned an unexpected response",
-			zap.Int("StatusCode", response.StatusCode()),
+			zap.Int("Status code", response.StatusCode()),
 			zap.ByteString("Body", response.Body()),
 		)
 
@@ -317,10 +400,9 @@ func (c *Client) getPlayerStream(
 		)
 	}
 
-	var result playerResponse
+	var playerResponse playerResponse
 	if err := json.Unmarshal(
-		response.Body(),
-		&result,
+		response.Body(), &playerResponse,
 	); err != nil {
 		return nil, fmt.Errorf("decode YouTube player response: %w", err)
 	}
@@ -328,11 +410,11 @@ func (c *Client) getPlayerStream(
 	streamResult := &client.Stream{
 		ID:      videoID,
 		Channel: channel,
-		URL:     "https://www.youtube.com/watch?v=" + videoID,
+		URL:     baseWatchUrl + videoID,
 		IsLive:  false,
 	}
 
-	live := result.Microformat.
+	live := playerResponse.Microformat.
 		PlayerMicroformatRenderer.
 		LiveBroadcastDetails
 
@@ -340,20 +422,14 @@ func (c *Client) getPlayerStream(
 		return streamResult, nil
 	}
 
-	startedAt, err := time.Parse(
-		time.RFC3339,
-		live.StartTimestamp,
-	)
+	startedAt, err := time.Parse(time.RFC3339, live.StartTimestamp)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"parse YouTube stream start time: %w",
-			err,
-		)
+		return nil, fmt.Errorf("parse YouTube stream start time: %w", err)
 	}
 
-	streamResult.ID = result.VideoDetails.VideoID
-	streamResult.Title = result.VideoDetails.Title
-	streamResult.Game = result.Microformat.
+	streamResult.ID = playerResponse.VideoDetails.VideoID
+	streamResult.Title = playerResponse.VideoDetails.Title
+	streamResult.Game = playerResponse.Microformat.
 		PlayerMicroformatRenderer.Category
 	streamResult.StartedAt = startedAt
 	streamResult.IsLive = true

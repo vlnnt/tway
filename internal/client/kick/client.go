@@ -14,8 +14,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const maxAttempts = 3
-
 type Client struct {
 	log        *zap.Logger
 	httpClient *fasthttp.Client
@@ -86,7 +84,7 @@ func (c *Client) GetStream(
 				"Failed to get Kick stream, retrying",
 				zap.String("Channel", channel),
 				zap.Int("Attempt", attempt),
-				zap.Int("MaxAttempts", maxAttempts),
+				zap.Int("Max attempts", maxAttempts),
 				zap.Error(err),
 			)
 
@@ -105,11 +103,7 @@ func (c *Client) GetStream(
 func (c *Client) getStream(
 	channel string,
 ) (*client.Stream, error) {
-	apiURL := fmt.Sprintf(
-		"https://kick.com/api/v2/channels/%s",
-		channel,
-	)
-
+	url := kickApiChannelsRoute + channel
 	c.log.Info(
 		"Checking Kick channel",
 		zap.String("Channel", channel),
@@ -117,31 +111,18 @@ func (c *Client) getStream(
 
 	request := fasthttp.AcquireRequest()
 	response := fasthttp.AcquireResponse()
-
 	defer fasthttp.ReleaseRequest(request)
 	defer fasthttp.ReleaseResponse(response)
 
-	request.SetRequestURI(apiURL)
+	request.SetRequestURI(url)
 	request.Header.SetMethod(fasthttp.MethodGet)
-
-	request.Header.Set(
-		"User-Agent",
-		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0 Safari/537.36",
-	)
-
-	request.Header.Set(
-		"Accept",
-		"application/json, text/plain, */*",
-	)
-
-	request.Header.Set(
-		"Referer",
-		"https://kick.com/"+channel,
-	)
+	request.Header.Set("User-Agent", kickUserAgent)
+	request.Header.Set("Accept", kickAcceptHeader)
+	request.Header.Set("Referer", kickBaseUrl+channel)
 
 	c.log.Info(
 		"Sending Kick request",
-		zap.String("URL", apiURL),
+		zap.String("URL", url),
 	)
 
 	if err := c.httpClient.DoTimeout(
@@ -154,13 +135,13 @@ func (c *Client) getStream(
 
 	c.log.Info(
 		"Kick response received",
-		zap.Int("StatusCode", response.StatusCode()),
+		zap.Int("Status code", response.StatusCode()),
 	)
 
 	if response.StatusCode() != fasthttp.StatusOK {
 		c.log.Warn(
 			"Kick returned an unexpected response",
-			zap.Int("StatusCode", response.StatusCode()),
+			zap.Int("Status code", response.StatusCode()),
 			zap.ByteString("Body", response.Body()),
 		)
 
@@ -171,18 +152,20 @@ func (c *Client) getStream(
 		)
 	}
 
-	var data channelResponse
-	if err := json.Unmarshal(response.Body(), &data); err != nil {
+	var channelResponse channelResponse
+	if err := json.Unmarshal(
+		response.Body(), &channelResponse,
+	); err != nil {
 		return nil, fmt.Errorf("decode Kick response: %w", err)
 	}
 
 	streamResult := &client.Stream{
 		Channel: channel,
-		URL:     "https://kick.com/" + channel,
-		IsLive:  data.Livestream != nil,
+		URL:     kickBaseUrl + channel,
+		IsLive:  channelResponse.Livestream != nil,
 	}
 
-	if data.Livestream == nil {
+	if channelResponse.Livestream == nil {
 		c.log.Info(
 			"Kick channel is offline",
 			zap.String("Channel", channel),
@@ -191,23 +174,19 @@ func (c *Client) getStream(
 		return streamResult, nil
 	}
 
-	streamResult.ID = strconv.FormatInt(
-		data.Livestream.ID,
-		10,
-	)
-
-	streamResult.Title = data.Livestream.Title
+	streamResult.ID = strconv.FormatInt(channelResponse.Livestream.ID, 10)
+	streamResult.Title = channelResponse.Livestream.Title
 	startedAt, err := time.Parse(
 		"2006-01-02 15:04:05",
-		data.Livestream.CreatedAt,
+		channelResponse.Livestream.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("parse Kick stream start time: %w", err)
 	}
 
 	streamResult.StartedAt = startedAt
-	if data.Livestream.Category != nil {
-		streamResult.Game = data.Livestream.Category.Name
+	if channelResponse.Livestream.Category != nil {
+		streamResult.Game = channelResponse.Livestream.Category.Name
 	}
 
 	c.log.Info(

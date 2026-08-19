@@ -1,7 +1,9 @@
 package twitch
 
 const (
-	apiURL             = "https://gql.twitch.tv/gql"
+	maxAttempts        = 3
+	url                = "https://gql.twitch.tv/gql"
+	baseUrl            = "https://twitch.tv/"
 	clientID           = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 	streamMetadataHash = "b57f9b910f8cd1a4659d894fe7550ccc81ec9052c01e438b290fd66a040b9b93"
 )
@@ -41,13 +43,13 @@ type streamResponse struct {
 	Game      gameResponse `json:"game"`
 }
 
-type graphqlError struct {
-	Message string `json:"message"`
-}
-
 type userResponse struct {
 	LastBroadcast broadcastResponse `json:"lastBroadcast"`
 	Stream        *streamResponse   `json:"stream"`
+}
+
+type graphqlError struct {
+	Message string `json:"message"`
 }
 
 type streamMetadataResponse struct {
