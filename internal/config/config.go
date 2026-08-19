@@ -7,11 +7,17 @@ import (
 )
 
 type Config struct {
-	CheckInterval   Duration `json:"check_interval"`
-	SummaryInterval Duration `json:"summary_interval"`
-	Twitch          Twitch   `json:"twitch"`
-	Kick            Kick     `json:"kick"`
-	Youtube         Youtube  `json:"youtube"`
+	Check   Duration `json:"check"`
+	Summary Summary  `json:"summary"`
+	Twitch  Twitch   `json:"twitch"`
+	Kick    Kick     `json:"kick"`
+	Youtube Youtube  `json:"youtube"`
+	WTV     WTV      `json:"wtv"`
+}
+
+type Summary struct {
+	Enable   bool     `json:"enable"`
+	Interval Duration `json:"interval"`
 }
 
 type Platform struct {
@@ -29,6 +35,10 @@ type Kick struct {
 }
 
 type Youtube struct {
+	Platform
+}
+
+type WTV struct {
 	Platform
 }
 

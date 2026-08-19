@@ -1,23 +1,20 @@
 # Tway
 
-Cross-platform Twitch stream watcher with desktop notifications.
+Cross-platform stream notifier with desktop notifications.
 
-## Features
-
-- Windows/Linux support
-- System tray application
-- Live/offline notifications
-- Multiple streamer tracking
-- Configurable check interval
+Currently supporting platforms - Kick, Twitch, Youtube, w.tv
 
 ## Config
 
-Create `config.json`:
+Config example:
 
 ```json
 {
-  "check_interval": "2m",
-  "summary_interval": "10m",
+  "check": "2m",
+  "summary": {
+      "enable": true,
+      "interval": "10m"
+  },
   "twitch": {
       "http_proxy": "127.0.0.1:10808",
       "socks_proxy": "",
@@ -37,6 +34,13 @@ Create `config.json`:
       "socks_proxy": "",
       "channels": [
         "forsen",
+      ]
+  },
+  "wtv": {
+      "http_proxy": "",
+      "socks_proxy": "",
+      "channels": [
+        "forsen"
       ]
   }
 }
