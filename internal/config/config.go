@@ -1,64 +1,69 @@
 package config
 
 import (
-	"encoding/json"
-	"fmt"
-	"time"
+	"os"
+
+	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
-	Check   Duration `json:"check"`
-	Summary Summary  `json:"summary"`
-	Twitch  Twitch   `json:"twitch"`
-	Kick    Kick     `json:"kick"`
-	Youtube Youtube  `json:"youtube"`
-	WTV     WTV      `json:"wtv"`
+	Check   string  `yaml:"check"`
+	Summary Summary `yaml:"summary"`
+	Twitch  Twitch  `yaml:"twitch"`
+	Kick    Kick    `yaml:"kick"`
+	Youtube Youtube `yaml:"youtube"`
+	WTV     WTV     `yaml:"wtv"`
 }
 
 type Summary struct {
-	Enable   bool     `json:"enable"`
-	Interval Duration `json:"interval"`
+	Enable   bool   `yaml:"enable"`
+	Interval string `yaml:"interval"`
+}
+
+type Proxy struct {
+	HTTP  string `yaml:"http"`
+	Socks string `yaml:"socks"`
 }
 
 type Platform struct {
-	HTTPProxy  string   `json:"http_proxy"`
-	SocksProxy string   `json:"socks_proxy"`
-	Channels   []string `json:"channels"`
+	Proxy    Proxy    `yaml:"proxy"`
+	Channels []string `yaml:"channels"`
 }
 
 type Twitch struct {
-	Platform
+	Platform `yaml:",inline"`
 }
 
 type Kick struct {
-	Platform
+	Platform `yaml:",inline"`
 }
 
 type Youtube struct {
-	Platform
+	Platform `yaml:",inline"`
 }
 
 type WTV struct {
-	Platform
+	Platform `yaml:",inline"`
 }
 
-type Duration struct {
-	time.Duration
-}
-
-func (d *Duration) UnmarshalJSON(
-	data []byte,
-) error {
-	var value string
-	if err := json.Unmarshal(data, &value); err != nil {
-		return fmt.Errorf("decode duration: %w", err)
-	}
-
-	duration, err := time.ParseDuration(value)
+func LoadConfig(
+	path string,
+) (*Config, error) {
+	config, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("parse duration %q: %w", value, err)
+		return nil, err
 	}
 
-	d.Duration = duration
-	return nil
+	settings := &Config{}
+	err = yaml.Unmarshal(config, settings)
+	if err != nil {
+		return nil, err
+	}
+
+	return settings, nil
+}
+
+func Get() *Config {
+	c := &Config{}
+	return c
 }

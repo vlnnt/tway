@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"flag"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"tway/internal/app"
 	"tway/internal/client"
@@ -26,7 +27,6 @@ import (
 func main() {
 	logger, err := zap.NewProduction()
 	if err != nil {
-		logger.Error("main.zap.NewProduction", zap.Error(err))
 		return
 	}
 	defer logger.Sync()
@@ -38,42 +38,72 @@ func main() {
 	}
 
 	exeDir := filepath.Dir(exePath)
-	configPath := filepath.Join(exeDir, "config.json")
-	iconPath := filepath.Join(exeDir, "tway.ico")
+	configPath := flag.String(
+		"config",
+		filepath.Join(exeDir, "tway.yaml"),
+		"Path to config file",
+	)
 
-	tuiMode := len(os.Args) >= 2 && os.Args[1] == "--tui"
+	iconPath := flag.String(
+		"icon",
+		filepath.Join(exeDir, "tway.ico"),
+		"Path to icon file",
+	)
 
-	logger.Info("Icon path", zap.String("Path", iconPath))
-	if len(os.Args) >= 2 && !tuiMode {
-		configPath = os.Args[1]
-	}
+	tuiMode := flag.Bool("tui", false, "Run TUI")
+	flag.Parse()
 
-	logger.Info("Loading config ...", zap.String("Path", configPath))
-	file, err := os.Open(configPath)
+	logger.Info(
+		"Paths initialized",
+		zap.String("Config", *configPath),
+		zap.String("Icon", *iconPath),
+	)
+
+	logger.Info(
+		"Loading config ...",
+		zap.String("Path", *configPath),
+	)
+
+	config, err := config.LoadConfig(*configPath)
 	if err != nil {
-		logger.Error("main.os.Open", zap.Error(err))
+		logger.Error(
+			"config.LoadConfig",
+			zap.Error(err),
+		)
 		return
 	}
-	defer file.Close()
 
-	var config config.Config
-	if err := json.NewDecoder(file).Decode(&config); err != nil {
-		logger.Error("main.json.NewDecoder.Decode", zap.Error(err))
+	checkInterval, err := time.ParseDuration(config.Check)
+	if err != nil {
+		logger.Error(
+			"Parse check interval",
+			zap.Error(err),
+		)
+		return
+	}
+
+	summaryInterval, err := time.ParseDuration(config.Summary.Interval)
+	if err != nil {
+		logger.Error(
+			"Parse summary interval",
+			zap.Error(err),
+		)
 		return
 	}
 
 	logger.Info(
 		"Config has loaded",
-		zap.Duration("Check interval", config.Check.Duration),
-		zap.Duration("Summary interval", config.Summary.Interval.Duration),
+		zap.Duration("Check interval", checkInterval),
+		zap.Duration("Summary interval", summaryInterval),
 		zap.Bool("Summary notify status", config.Summary.Enable),
 		zap.Int("Twitch", len(config.Twitch.Channels)),
 		zap.Int("Kick", len(config.Kick.Channels)),
 		zap.Int("Youtube", len(config.Youtube.Channels)),
+		zap.Int("WTV", len(config.WTV.Channels)),
 	)
 
 	clientLogger := logger
-	if tuiMode {
+	if *tuiMode {
 		clientLogger = zap.NewNop()
 	}
 
@@ -84,8 +114,8 @@ func main() {
 			Channels: config.Twitch.Channels,
 			Client: twitch.NewClient(
 				clientLogger,
-				config.Twitch.HTTPProxy,
-				config.Twitch.SocksProxy,
+				config.Twitch.Proxy.HTTP,
+				config.Twitch.Proxy.Socks,
 			),
 		},
 		{
@@ -93,8 +123,8 @@ func main() {
 			Channels: config.Kick.Channels,
 			Client: kick.NewClient(
 				clientLogger,
-				config.Kick.HTTPProxy,
-				config.Kick.SocksProxy,
+				config.Kick.Proxy.HTTP,
+				config.Kick.Proxy.Socks,
 			),
 		},
 		{
@@ -102,8 +132,8 @@ func main() {
 			Channels: config.Youtube.Channels,
 			Client: youtube.NewClient(
 				clientLogger,
-				config.Youtube.HTTPProxy,
-				config.Youtube.SocksProxy,
+				config.Youtube.Proxy.HTTP,
+				config.Youtube.Proxy.Socks,
 			),
 		},
 		{
@@ -111,8 +141,8 @@ func main() {
 			Channels: config.WTV.Channels,
 			Client: wtv.NewClient(
 				clientLogger,
-				config.WTV.HTTPProxy,
-				config.WTV.SocksProxy,
+				config.WTV.Proxy.HTTP,
+				config.WTV.Proxy.Socks,
 			),
 		},
 	}
@@ -122,7 +152,7 @@ func main() {
 		zap.Int("Platforms", len(platforms)),
 	)
 
-	if tuiMode {
+	if *tuiMode {
 		logger.Info("Starting TUI ...")
 		if err := tui.AttachConsole(); err != nil {
 			logger.Error(
@@ -149,7 +179,10 @@ func main() {
 							continue
 						}
 
-						streams = append(streams, stream)
+						streams = append(
+							streams,
+							stream,
+						)
 					}
 				}
 
@@ -162,7 +195,6 @@ func main() {
 			)
 			return
 		}
-
 		return
 	}
 
@@ -184,7 +216,10 @@ func main() {
 		filepath.Join(exeDir, "state.db"),
 	)
 	if err != nil {
-		logger.Error("Create storage", zap.Error(err))
+		logger.Error(
+			"Create storage",
+			zap.Error(err),
+		)
 		return
 	}
 
@@ -199,11 +234,11 @@ func main() {
 
 	for _, platform := range platforms {
 		application := app.NewApp(
-			iconPath,
+			*iconPath,
 			logger,
 			platform.Name,
 			platform.Channels,
-			config.Check.Duration,
+			checkInterval,
 			platform.Client,
 			notificationService,
 			storage,
@@ -229,8 +264,8 @@ func main() {
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
-
 	defer stop()
+
 	logger.Info("Notify context created!")
 
 	logger.Info("Running applications ...")
@@ -258,9 +293,9 @@ func main() {
 			ctx,
 			logger,
 			platforms,
-			config.Summary.Interval.Duration,
+			summaryInterval,
 			notificationService,
-			iconPath,
+			*iconPath,
 		)
 	}
 
