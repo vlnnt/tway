@@ -12,6 +12,7 @@ import (
 	"tway/internal/client"
 	"tway/internal/client/kick"
 	"tway/internal/client/twitch"
+	"tway/internal/client/wtv"
 	"tway/internal/client/youtube"
 	"tway/internal/config"
 	"tway/internal/notifier"
@@ -40,8 +41,10 @@ func main() {
 	configPath := filepath.Join(exeDir, "config.json")
 	iconPath := filepath.Join(exeDir, "tway.ico")
 
+	tuiMode := len(os.Args) >= 2 && os.Args[1] == "--tui"
+
 	logger.Info("Icon path", zap.String("Path", iconPath))
-	if len(os.Args) >= 2 && os.Args[1] != "--tui" {
+	if len(os.Args) >= 2 && !tuiMode {
 		configPath = os.Args[1]
 	}
 
@@ -61,12 +64,18 @@ func main() {
 
 	logger.Info(
 		"Config has loaded",
-		zap.Duration("Check interval", config.CheckInterval.Duration),
-		zap.Duration("Summary interval", config.SummaryInterval.Duration),
+		zap.Duration("Check interval", config.Check.Duration),
+		zap.Duration("Summary interval", config.Summary.Interval.Duration),
+		zap.Bool("Summary notify status", config.Summary.Enable),
 		zap.Int("Twitch", len(config.Twitch.Channels)),
 		zap.Int("Kick", len(config.Kick.Channels)),
 		zap.Int("Youtube", len(config.Youtube.Channels)),
 	)
+
+	clientLogger := logger
+	if tuiMode {
+		clientLogger = zap.NewNop()
+	}
 
 	logger.Info("Initializing clients ...")
 	platforms := []Platform{
@@ -74,7 +83,7 @@ func main() {
 			Name:     "twitch",
 			Channels: config.Twitch.Channels,
 			Client: twitch.NewClient(
-				logger,
+				clientLogger,
 				config.Twitch.HTTPProxy,
 				config.Twitch.SocksProxy,
 			),
@@ -83,7 +92,7 @@ func main() {
 			Name:     "kick",
 			Channels: config.Kick.Channels,
 			Client: kick.NewClient(
-				logger,
+				clientLogger,
 				config.Kick.HTTPProxy,
 				config.Kick.SocksProxy,
 			),
@@ -92,9 +101,18 @@ func main() {
 			Name:     "youtube",
 			Channels: config.Youtube.Channels,
 			Client: youtube.NewClient(
-				logger,
+				clientLogger,
 				config.Youtube.HTTPProxy,
 				config.Youtube.SocksProxy,
+			),
+		},
+		{
+			Name:     "wtv",
+			Channels: config.WTV.Channels,
+			Client: wtv.NewClient(
+				clientLogger,
+				config.WTV.HTTPProxy,
+				config.WTV.SocksProxy,
 			),
 		},
 	}
@@ -104,7 +122,7 @@ func main() {
 		zap.Int("Platforms", len(platforms)),
 	)
 
-	if len(os.Args) >= 2 && os.Args[1] == "--tui" {
+	if tuiMode {
 		logger.Info("Starting TUI ...")
 		if err := tui.AttachConsole(); err != nil {
 			logger.Error(
@@ -114,30 +132,37 @@ func main() {
 			return
 		}
 
-		var streams []*client.Stream
-		for _, platform := range platforms {
-			for _, channel := range platform.Channels {
-				stream, err := platform.Client.GetStream(channel)
-				if err != nil {
-					logger.Error(
-						"main.GetStream",
-						zap.String("Platform", platform.Name),
-						zap.String("Channel", channel),
-						zap.Error(err),
-					)
-					continue
-				}
-				streams = append(streams, stream)
-			}
-		}
-
 		ui := tui.NewTUI()
-		if err := ui.ShowStreamers(streams); err != nil {
+		if err := ui.ShowStreamers(
+			func() ([]*client.Stream, error) {
+				var streams []*client.Stream
+				for _, platform := range platforms {
+					for _, channel := range platform.Channels {
+						stream, err := platform.Client.GetStream(channel)
+						if err != nil {
+							logger.Error(
+								"main.GetStream",
+								zap.String("Platform", platform.Name),
+								zap.String("Channel", channel),
+								zap.Error(err),
+							)
+							continue
+						}
+
+						streams = append(streams, stream)
+					}
+				}
+
+				return streams, nil
+			},
+		); err != nil {
 			logger.Error(
 				"TUI stopped with error",
 				zap.Error(err),
 			)
+			return
 		}
+
 		return
 	}
 
@@ -178,8 +203,7 @@ func main() {
 			logger,
 			platform.Name,
 			platform.Channels,
-			config.CheckInterval.Duration,
-			config.SummaryInterval.Duration,
+			config.Check.Duration,
 			platform.Client,
 			notificationService,
 			storage,
@@ -210,10 +234,10 @@ func main() {
 	logger.Info("Notify context created!")
 
 	logger.Info("Running applications ...")
-
 	for i, application := range applications {
 		application := application
 		platform := platforms[i]
+
 		go func() {
 			if err := application.Run(ctx); err != nil {
 				logger.Error(
@@ -229,14 +253,16 @@ func main() {
 		}()
 	}
 
-	go runSummaryWorker(
-		ctx,
-		logger,
-		platforms,
-		config.SummaryInterval.Duration,
-		notificationService,
-		iconPath,
-	)
+	if config.Summary.Enable {
+		go runSummaryWorker(
+			ctx,
+			logger,
+			platforms,
+			config.Summary.Interval.Duration,
+			notificationService,
+			iconPath,
+		)
+	}
 
 	logger.Info("Creating tray ...")
 	trayApp := tray.NewTray(
