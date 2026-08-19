@@ -14,15 +14,14 @@ import (
 )
 
 type App struct {
-	icon            string
-	log             *zap.Logger
-	platform        string
-	channels        []string
-	checkInterval   time.Duration
-	summaryInterval time.Duration
-	client          client.Client
-	notifier        notifier.Notifier
-	storage         *storage.StateStorage
+	icon          string
+	log           *zap.Logger
+	platform      string
+	channels      []string
+	checkInterval time.Duration
+	client        client.Client
+	notifier      notifier.Notifier
+	storage       *storage.StateStorage
 }
 
 func NewApp(
@@ -31,21 +30,19 @@ func NewApp(
 	platform string,
 	channels []string,
 	checkInterval time.Duration,
-	summaryInterval time.Duration,
 	client client.Client,
 	notificationService notifier.Notifier,
 	storage *storage.StateStorage,
 ) *App {
 	return &App{
-		icon:            icon,
-		log:             log,
-		platform:        platform,
-		channels:        channels,
-		checkInterval:   checkInterval,
-		summaryInterval: summaryInterval,
-		client:          client,
-		notifier:        notificationService,
-		storage:         storage,
+		icon:          icon,
+		log:           log,
+		platform:      platform,
+		channels:      channels,
+		checkInterval: checkInterval,
+		client:        client,
+		notifier:      notificationService,
+		storage:       storage,
 	}
 }
 
@@ -56,8 +53,7 @@ func (a *App) Run(
 		"Starting platform worker",
 		zap.String("Platform", a.platform),
 		zap.Int("Channels", len(a.channels)),
-		zap.Duration("CheckInterval", a.checkInterval),
-		zap.Duration("SummaryInterval", a.summaryInterval),
+		zap.Duration("Check interval", a.checkInterval),
 	)
 
 	group, ctx := errgroup.WithContext(ctx)
@@ -88,7 +84,7 @@ func (a *App) Run(
 					"Channel worker started",
 					zap.String("Platform", a.platform),
 					zap.String("Channel", channel),
-					zap.Bool("WasLive", wasLive),
+					zap.Bool("Was live status", wasLive),
 				)
 
 				for {
