@@ -216,14 +216,14 @@ func (c *Client) getStream(
 
 	streamResult.ID = stream.ID
 	streamResult.Title = streamMetadataResponse.Data.User.LastBroadcast.Title
-	streamResult.Game = stream.Game.Name
+	streamResult.Subcategory = stream.Game.Name
 	streamResult.StartedAt = startedAt
 	streamResult.IsLive = stream.Type == "live"
 
 	c.log.Info(
 		"Twitch channel is live",
 		zap.String("Channel", channel),
-		zap.String("Game", streamResult.Game),
+		zap.String("Subcategory", streamResult.Subcategory),
 		zap.String("Title", streamResult.Title),
 	)
 

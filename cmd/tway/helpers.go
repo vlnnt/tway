@@ -7,6 +7,7 @@ import (
 
 	"tway/internal/client"
 	"tway/internal/notifier"
+	"tway/internal/storage"
 
 	"go.uber.org/zap"
 )
@@ -20,16 +21,16 @@ type Platform struct {
 func runSummaryWorker(
 	ctx context.Context,
 	logger *zap.Logger,
-	platforms []Platform,
 	interval time.Duration,
+	state *storage.StateStorage,
 	notificationService notifier.Notifier,
 	icon string,
 ) {
-	sendOverallStatus(
-		logger,
-		platforms,
-		notificationService,
+	processOverall(
 		icon,
+		logger,
+		state,
+		notificationService,
 	)
 
 	ticker := time.NewTicker(interval)
@@ -42,30 +43,28 @@ func runSummaryWorker(
 			return
 
 		case <-ticker.C:
-			sendOverallStatus(
-				logger,
-				platforms,
-				notificationService,
+			processOverall(
 				icon,
+				logger,
+				state,
+				notificationService,
 			)
 		}
 	}
 }
 
-func sendOverallStatus(
+func initializeStreamStates(
 	logger *zap.Logger,
 	platforms []Platform,
-	notificationService notifier.Notifier,
-	icon string,
+	stateStorage *storage.StateStorage,
 ) {
-	logger.Info("Processing overall stream status ...")
-	online, offline := 0, 0
+	logger.Info("Initializing stream states...")
 	for _, platform := range platforms {
 		for _, channel := range platform.Channels {
 			stream, err := platform.Client.GetStream(channel)
 			if err != nil {
 				logger.Error(
-					"Failed to get stream for summary",
+					"Failed to get initial stream state",
 					zap.String("Platform", platform.Name),
 					zap.String("Channel", channel),
 					zap.Error(err),
@@ -73,11 +72,51 @@ func sendOverallStatus(
 				continue
 			}
 
-			if stream.IsLive {
-				online++
-			} else {
-				offline++
+			err = stateStorage.Update(
+				storage.StreamState{
+					Platform:  platform.Name,
+					Channel:   channel,
+					IsLive:    stream.IsLive,
+					StreamID:  stream.ID,
+					UpdatedAt: time.Now(),
+				},
+			)
+			if err != nil {
+				logger.Error(
+					"Failed to update initial stream state",
+					zap.String("Platform", platform.Name),
+					zap.String("Channel", channel),
+					zap.Error(err),
+				)
 			}
+		}
+	}
+
+	logger.Info("Stream states initialized!")
+}
+
+func processOverall(
+	icon string,
+	logger *zap.Logger,
+	state *storage.StateStorage,
+	notificationService notifier.Notifier,
+) {
+	logger.Info("Processing overall streams...")
+	states, err := state.GetAll()
+	if err != nil {
+		logger.Error(
+			"Failed to get stream states",
+			zap.Error(err),
+		)
+		return
+	}
+
+	online, offline := 0, 0
+	for _, stream := range states {
+		if stream.IsLive {
+			online++
+		} else {
+			offline++
 		}
 	}
 
@@ -107,8 +146,29 @@ func sendOverallStatus(
 	}
 
 	logger.Info(
-		"Overall stream status processed",
+		"Summary notification sent",
 		zap.Int("Online", online),
 		zap.Int("Offline", offline),
 	)
+}
+
+func streamURL(
+	platform, channel string,
+) string {
+	switch platform {
+	case "twitch":
+		return "https://www.twitch.tv/" + channel
+
+	case "kick":
+		return "https://kick.com/" + channel
+
+	case "youtube":
+		return "https://www.youtube.com/@" + channel
+
+	case "wtv":
+		return "https://w.tv/" + channel
+
+	default:
+		return ""
+	}
 }

@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-//go:embed twitch.ico
+//go:embed tway.ico
 var icon []byte
 
 type Tray struct {

@@ -186,13 +186,13 @@ func (c *Client) getStream(
 
 	streamResult.StartedAt = startedAt
 	if channelResponse.Livestream.Category != nil {
-		streamResult.Game = channelResponse.Livestream.Category.Name
+		streamResult.Subcategory = channelResponse.Livestream.Category.Name
 	}
 
 	c.log.Info(
 		"Kick channel is live",
 		zap.String("Channel", channel),
-		zap.String("Game", streamResult.Game),
+		zap.String("Subcategory", streamResult.Subcategory),
 		zap.String("Title", streamResult.Title),
 	)
 

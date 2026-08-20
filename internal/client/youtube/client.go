@@ -156,7 +156,7 @@ func (c *Client) getStream(
 	c.log.Info(
 		"YouTube channel is live",
 		zap.String("Channel", stream.Channel),
-		zap.String("Game", stream.Game),
+		zap.String("Subcategory", stream.Subcategory),
 		zap.String("Title", stream.Title),
 	)
 
@@ -429,7 +429,7 @@ func (c *Client) getPlayerStream(
 
 	streamResult.ID = playerResponse.VideoDetails.VideoID
 	streamResult.Title = playerResponse.VideoDetails.Title
-	streamResult.Game = playerResponse.Microformat.
+	streamResult.Subcategory = playerResponse.Microformat.
 		PlayerMicroformatRenderer.Category
 	streamResult.StartedAt = startedAt
 	streamResult.IsLive = true

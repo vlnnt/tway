@@ -123,7 +123,7 @@ func (a *App) Run(
 							zap.String("Channel", channel),
 							zap.Bool("Live", stream.IsLive),
 							zap.String("Title", stream.Title),
-							zap.String("Game", stream.Game),
+							zap.String("Subcategory", stream.Subcategory),
 						)
 
 						if !wasLive && stream.IsLive {
@@ -139,7 +139,7 @@ func (a *App) Run(
 									Message: fmt.Sprintf(
 										"%s\nCategory: %s",
 										stream.Title,
-										stream.Game,
+										stream.Subcategory,
 									),
 									Icon: a.icon,
 									URL:  stream.URL,
@@ -170,7 +170,7 @@ func (a *App) Run(
 									Title:   channel + " is no longer live",
 									Message: "The streamer has left the broadcast",
 									Icon:    a.icon,
-									URL:     stream.URL + channel,
+									URL:     stream.URL,
 								},
 							)
 
@@ -186,7 +186,7 @@ func (a *App) Run(
 							wasLive = false
 						}
 
-						err = a.storage.Save(
+						err = a.storage.Update(
 							storage.StreamState{
 								Platform:  a.platform,
 								Channel:   channel,
@@ -198,7 +198,7 @@ func (a *App) Run(
 
 						if err != nil {
 							a.log.Error(
-								"Failed to save stream state",
+								"Failed to update stream state",
 								zap.String("Platform", a.platform),
 								zap.String("Channel", channel),
 								zap.Error(err),

@@ -151,13 +151,13 @@ func (c *Client) getStream(
 	streamResult.IsLive = stream.State == "started"
 
 	if stream.Subcategory != nil {
-		streamResult.Game = stream.Subcategory.Name
+		streamResult.Subcategory = stream.Subcategory.Name
 	}
 
 	c.log.Info(
 		"W.TV channel is live",
 		zap.String("Channel", channel),
-		zap.String("Game", streamResult.Game),
+		zap.String("Subcategory", streamResult.Subcategory),
 		zap.String("Title", streamResult.Title),
 	)
 
