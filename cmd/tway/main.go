@@ -205,7 +205,6 @@ func main() {
 						streams = append(
 							streams,
 							&client.Stream{
-								ID:      state.StreamID,
 								Channel: state.Channel,
 								IsLive:  state.IsLive,
 								URL: streamURL(

@@ -216,7 +216,7 @@ func (c *Client) getStream(
 
 	streamResult.ID = stream.ID
 	streamResult.Title = streamMetadataResponse.Data.User.LastBroadcast.Title
-	streamResult.Subcategory = stream.Game.Name
+	streamResult.Subcategory = stream.Category.Name
 	streamResult.StartedAt = startedAt
 	streamResult.IsLive = stream.Type == "live"
 

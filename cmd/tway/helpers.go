@@ -77,7 +77,6 @@ func initializeStreamStates(
 					Platform:  platform.Name,
 					Channel:   channel,
 					IsLive:    stream.IsLive,
-					StreamID:  stream.ID,
 					UpdatedAt: time.Now(),
 				},
 			)

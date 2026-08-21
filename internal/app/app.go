@@ -191,7 +191,6 @@ func (a *App) Run(
 								Platform:  a.platform,
 								Channel:   channel,
 								IsLive:    stream.IsLive,
-								StreamID:  stream.ID,
 								UpdatedAt: time.Now(),
 							},
 						)

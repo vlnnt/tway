@@ -45,7 +45,6 @@ func (ss *StateStorage) migrate() error {
 			platform TEXT NOT NULL,
 			channel TEXT NOT NULL,
 			is_live INTEGER NOT NULL,
-			stream_id TEXT NOT NULL,
 			updated_at DATETIME NOT NULL,
 
 			PRIMARY KEY (platform, channel)
@@ -82,7 +81,6 @@ func (ss *StateStorage) Get(
 			platform,
 			channel,
 			is_live,
-			stream_id,
 			updated_at
 		FROM stream_states
 		WHERE platform = ?
@@ -90,13 +88,12 @@ func (ss *StateStorage) Get(
 	`, platform, channel)
 
 	var streamState StreamState
-	var live int
+	var isLive int
 
 	err := row.Scan(
 		&streamState.Platform,
 		&streamState.Channel,
-		&live,
-		&streamState.StreamID,
+		&isLive,
 		&streamState.UpdatedAt,
 	)
 
@@ -108,7 +105,7 @@ func (ss *StateStorage) Get(
 		return nil, fmt.Errorf("get state: %w", err)
 	}
 
-	streamState.IsLive = live == 1
+	streamState.IsLive = isLive == 1
 	ss.logger.Info("Get state storage completed success",
 		zap.Any("Stream state", streamState),
 	)
@@ -130,10 +127,9 @@ func (ss *StateStorage) Ensure(
 			platform,
 			channel,
 			is_live,
-			stream_id,
 			updated_at
 		)
-		VALUES (?, ?, 0, '', ?)
+		VALUES (?, ?, 0, ?)
 		ON CONFLICT(platform, channel)
 		DO NOTHING
 	`,
@@ -161,12 +157,10 @@ func (ss *StateStorage) Update(
 		UPDATE stream_states
 		SET
 			is_live = ?,
-			stream_id = ?,
 			updated_at = ?
 		WHERE platform = ?
 			AND channel = ?`,
 		boolToInt(state.IsLive),
-		state.StreamID,
 		state.UpdatedAt,
 		state.Platform,
 		state.Channel,
@@ -199,7 +193,6 @@ func (ss *StateStorage) GetAll() ([]StreamState, error) {
 			platform,
 			channel,
 			is_live,
-			stream_id,
 			updated_at
 		FROM stream_states
 	`)
@@ -212,19 +205,18 @@ func (ss *StateStorage) GetAll() ([]StreamState, error) {
 	for rows.Next() {
 
 		var state StreamState
-		var live int
+		var isLive int
 
 		if err := rows.Scan(
 			&state.Platform,
 			&state.Channel,
-			&live,
-			&state.StreamID,
+			&isLive,
 			&state.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan state: %w", err)
 		}
 
-		state.IsLive = live == 1
+		state.IsLive = isLive == 1
 		streamState = append(streamState, state)
 	}
 

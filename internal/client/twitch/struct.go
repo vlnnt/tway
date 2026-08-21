@@ -28,7 +28,7 @@ type streamMetadataRequest struct {
 	Extensions    streamMetadataExtensions `json:"extensions"`
 }
 
-type gameResponse struct {
+type categoryResponse struct {
 	Name string `json:"name"`
 }
 
@@ -37,10 +37,10 @@ type broadcastResponse struct {
 }
 
 type streamResponse struct {
-	ID        string       `json:"id"`
-	Type      string       `json:"type"`
-	CreatedAt string       `json:"createdAt"`
-	Game      gameResponse `json:"game"`
+	ID        string           `json:"id"`
+	Type      string           `json:"type"`
+	CreatedAt string           `json:"createdAt"`
+	Category  categoryResponse `json:"game"`
 }
 
 type userResponse struct {

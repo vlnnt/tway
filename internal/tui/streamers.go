@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"tway/internal/client"
@@ -12,10 +13,31 @@ import (
 	"github.com/rivo/tview"
 )
 
+const (
+	loadingViewWidth     = 50
+	loadingViewHeight    = 5
+	errorViewWidth       = 70
+	errorViewHeight      = 7
+	platformMenuWidth    = 18
+	loadingFrameInterval = 80 * time.Millisecond
+	tableHeaderRow       = 0
+	tableFirstDataRow    = 1
+	streamerColumn       = 0
+	statusColumn         = 1
+	columnExpansion      = 1
+)
+
 type Loader func() ([]*client.Stream, error)
 
 type TUI struct {
 	application *tview.Application
+}
+
+var platforms = []string{
+	"Twitch",
+	"Kick",
+	"YouTube",
+	"W.TV",
 }
 
 func NewTUI() *TUI {
@@ -36,7 +58,11 @@ func (u *TUI) ShowStreamers(
 		SetTitleAlign(tview.AlignCenter)
 
 	u.application.SetRoot(
-		centerPrimitive(loading, 50, 5),
+		centerPrimitive(
+			loading,
+			loadingViewWidth,
+			loadingViewHeight,
+		),
 		true,
 	)
 
@@ -59,7 +85,7 @@ func (u *TUI) loadStreams(
 
 	done := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(80 * time.Millisecond)
+		ticker := time.NewTicker(loadingFrameInterval)
 		defer ticker.Stop()
 		frame := 0
 
@@ -71,7 +97,6 @@ func (u *TUI) loadStreams(
 			case <-ticker.C:
 				currentFrame := frames[frame%len(frames)]
 				frame++
-
 				u.application.QueueUpdateDraw(
 					func() {
 						loading.SetText(
@@ -96,8 +121,8 @@ func (u *TUI) loadStreams(
 				u.application.SetRoot(
 					centerPrimitive(
 						errorView,
-						70,
-						7,
+						errorViewWidth,
+						errorViewHeight,
 					),
 					true,
 				)
@@ -107,55 +132,115 @@ func (u *TUI) loadStreams(
 		return
 	}
 
-	table := buildTable(states)
+	view := buildStreamsView(states)
 	u.application.QueueUpdateDraw(
 		func() {
 			u.application.SetRoot(
-				table,
+				view,
 				true,
 			)
 		},
 	)
 }
 
-func buildTable(
+func buildStreamsView(
 	states []*client.Stream,
-) *tview.Table {
+) tview.Primitive {
+	activePlatform := 0
 	table := tview.NewTable().
 		SetBorders(true).
 		SetSelectable(false, false)
 
-	table.SetTitle(" Streams ").
-		SetBorder(true)
+	table.SetBorder(true)
+	platformMenu := tview.NewTextView().
+		SetDynamicColors(true).
+		SetTextAlign(tview.AlignLeft)
+
+	platformMenu.SetBorder(true).
+		SetTitle(" Platforms ").
+		SetTitleAlign(tview.AlignCenter)
+
+	update := func() {
+		platform := platforms[activePlatform]
+		updateTable(
+			table,
+			filterStreams(states, platform),
+			platform,
+		)
+
+		updatePlatformMenu(
+			platformMenu,
+			activePlatform,
+		)
+	}
+
+	update()
+	layout := tview.NewFlex().
+		SetDirection(tview.FlexColumn).
+		AddItem(platformMenu, platformMenuWidth, 0, false).
+		AddItem(table, 0, 1, false)
+
+	layout.SetInputCapture(
+		func(event *tcell.EventKey) *tcell.EventKey {
+			switch event.Key() {
+			case tcell.KeyTAB:
+				activePlatform++
+				if activePlatform >= len(platforms) {
+					activePlatform = 0
+				}
+
+				update()
+				return nil
+
+			case tcell.KeyBacktab:
+				activePlatform--
+				if activePlatform < 0 {
+					activePlatform = len(platforms) - 1
+				}
+
+				update()
+				return nil
+			}
+
+			return event
+		},
+	)
+
+	return layout
+}
+
+func updateTable(
+	table *tview.Table,
+	states []*client.Stream,
+	platform string,
+) {
+	table.Clear()
+	table.SetTitle(
+		fmt.Sprintf(
+			" %s Streams ",
+			platform,
+		),
+	)
 
 	table.SetCell(
-		0,
-		0,
+		tableHeaderRow,
+		streamerColumn,
 		tview.NewTableCell("Streamer").
 			SetAlign(tview.AlignCenter).
-			SetExpansion(1).
+			SetExpansion(columnExpansion).
 			SetAttributes(tcell.AttrBold),
 	)
 
 	table.SetCell(
-		0,
-		1,
+		tableHeaderRow,
+		statusColumn,
 		tview.NewTableCell("Status").
 			SetAlign(tview.AlignCenter).
-			SetExpansion(1).
+			SetExpansion(columnExpansion).
 			SetAttributes(tcell.AttrBold),
 	)
 
-	table.SetCell(
-		0,
-		2,
-		tview.NewTableCell("Link").
-			SetAlign(tview.AlignCenter).
-			SetExpansion(1).
-			SetAttributes(tcell.AttrBold),
-	)
-
-	row := 1
+	row := tableFirstDataRow
 	for _, state := range states {
 		if state == nil {
 			continue
@@ -169,29 +254,16 @@ func buildTable(
 			statusColor = tcell.ColorGreen
 		}
 
-		table.SetCell(
-			row,
-			0,
-			tview.NewTableCell(state.Channel).
-				SetAlign(tview.AlignCenter),
-		)
-
-		table.SetCell(
-			row,
-			1,
-			tview.NewTableCell(status).
-				SetAlign(tview.AlignCenter).
-				SetTextColor(statusColor).
-				SetAttributes(tcell.AttrBold),
-		)
-
 		url := state.URL
-		linkCell := tview.NewTableCell(url).
-			SetAlign(tview.AlignCenter).
-			SetTextColor(tcell.ColorLightSkyBlue).
-			SetAttributes(tcell.AttrUnderline)
+		streamerCell := tview.NewTableCell(
+			fmt.Sprintf(
+				"[::u:%s]%s[-:-:-:-]",
+				url,
+				tview.Escape(state.Channel),
+			),
+		).SetAlign(tview.AlignCenter)
 
-		linkCell.SetClickedFunc(
+		streamerCell.SetClickedFunc(
 			func() bool {
 				openURL(url)
 				return true
@@ -200,14 +272,113 @@ func buildTable(
 
 		table.SetCell(
 			row,
-			2,
-			linkCell,
+			streamerColumn,
+			streamerCell,
+		)
+
+		table.SetCell(
+			row,
+			statusColumn,
+			tview.NewTableCell(status).
+				SetAlign(tview.AlignCenter).
+				SetTextColor(statusColor).
+				SetAttributes(tcell.AttrBold),
 		)
 
 		row++
 	}
+}
 
-	return table
+func updatePlatformMenu(
+	menu *tview.TextView,
+	activePlatform int,
+) {
+	menu.Clear()
+	for index, platform := range platforms {
+		if index == activePlatform {
+			fmt.Fprintf(
+				menu,
+				"\n  [yellow::b]> %s[-:-:-]",
+				platform,
+			)
+
+			continue
+		}
+
+		fmt.Fprintf(
+			menu,
+			"\n    %s",
+			platform,
+		)
+	}
+}
+
+func filterStreams(
+	states []*client.Stream,
+	platform string,
+) []*client.Stream {
+	filtered := make(
+		[]*client.Stream,
+		0,
+		len(states),
+	)
+
+	for _, state := range states {
+		if state == nil {
+			continue
+		}
+
+		if streamPlatform(state) != platform {
+			continue
+		}
+
+		filtered = append(
+			filtered,
+			state,
+		)
+	}
+
+	return filtered
+}
+
+func streamPlatform(
+	stream *client.Stream,
+) string {
+	url := strings.ToLower(stream.URL)
+	switch {
+	case strings.Contains(
+		url,
+		"twitch.tv/",
+	):
+		return "Twitch"
+
+	case strings.Contains(
+		url,
+		"kick.com/",
+	):
+		return "Kick"
+
+	case strings.Contains(
+		url,
+		"youtube.com/",
+	):
+		return "YouTube"
+
+	case strings.Contains(
+		url,
+		"youtu.be/",
+	):
+		return "YouTube"
+
+	case strings.Contains(
+		url,
+		"w.tv/",
+	):
+		return "W.TV"
+
+	default:
+		return ""
+	}
 }
 
 func centerPrimitive(
