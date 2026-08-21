@@ -9,41 +9,38 @@ Currently supporting platforms - Kick, Twitch, Youtube, w.tv
 Config example:
 
 ```json
-{
-  "check": "2m",
-  "summary": {
-      "enable": true,
-      "interval": "10m"
-  },
-  "twitch": {
-      "http_proxy": "127.0.0.1:10808",
-      "socks_proxy": "",
-      "channels": [
-          "forsen",
-      ]
-  },
-  "kick": {
-      "http_proxy": "",
-      "socks_proxy": "127.0.0.1:10808",
-      "channels": [
-        "forsen",
-      ]
-  },
-  "youtube": {
-      "http_proxy": "127.0.0.1:10808",
-      "socks_proxy": "",
-      "channels": [
-        "forsen",
-      ]
-  },
-  "wtv": {
-      "http_proxy": "",
-      "socks_proxy": "",
-      "channels": [
-        "forsen"
-      ]
-  }
-}
+check: "2m"
+summary:
+  enable: true 
+  interval: "10m"
+
+twitch:
+  proxy:
+    http: ""
+    socks: ""
+  channels:
+    - "forsen"
+
+kick:
+  proxy:
+    http: ""
+    socks: ""
+  channels:
+    - "forsen"
+
+youtube:
+  proxy:
+    http: "127.0.0.1:10808"
+    socks: ""
+  channels:
+    - "forsen"
+
+wtv:
+  proxy:
+    http: ""
+    socks: ""
+  channels:
+    - "forsen"
 ```
 
 ## Run

@@ -343,6 +343,19 @@ func main() {
 		func() {
 			logger.Info("Manual stream refresh requested")
 
+			if err := notificationService.Send(
+				notifier.Notification{
+					Title:   "tway",
+					Message: "Processing streams status refresh started!",
+					Icon:    *iconPath,
+				},
+			); err != nil {
+				logger.Error(
+					"Failed to send refresh notification",
+					zap.Error(err),
+				)
+			}
+
 			initializeStreamStates(
 				logger,
 				platforms,
@@ -363,6 +376,18 @@ func main() {
 			}
 
 			logger.Info("Manual stream refresh completed!")
+		},
+		func() {
+			logger.Info("Manual show streams summary requested")
+
+			processOverall(
+				*iconPath,
+				logger,
+				stateStorage,
+				notificationService,
+			)
+
+			logger.Info("Manual show streams summary completed!")
 		},
 		func() {
 			logger.Info("Tray exit event has requested!")

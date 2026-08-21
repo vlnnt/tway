@@ -14,17 +14,20 @@ var icon []byte
 type Tray struct {
 	log       *zap.Logger
 	onRefresh func()
+	onSummary func()
 	onExit    func()
 }
 
 func NewTray(
 	log *zap.Logger,
 	onRefresh func(),
+	onSummary func(),
 	onExit func(),
 ) *Tray {
 	return &Tray{
 		log:       log,
 		onRefresh: onRefresh,
+		onSummary: onSummary,
 		onExit:    onExit,
 	}
 }
@@ -42,6 +45,12 @@ func (t *Tray) showStreamers() {
 	}
 }
 
+func (t *Tray) showStreamsSummary() {
+	if t.onSummary != nil {
+		t.onSummary()
+	}
+}
+
 func (t *Tray) refreshStreamsStatus() {
 	if t.onRefresh != nil {
 		t.onRefresh()
@@ -56,6 +65,11 @@ func (t *Tray) onReady() {
 	show := systray.AddMenuItem(
 		"Show",
 		"Show streamers status",
+	)
+
+	summary := systray.AddMenuItem(
+		"Summary",
+		"Show streams summary",
 	)
 
 	refresh := systray.AddMenuItem(
@@ -76,6 +90,15 @@ func (t *Tray) onReady() {
 			)
 
 			t.showStreamers()
+		}
+	}()
+
+	go func() {
+		for range summary.ClickedCh {
+			t.log.Info("Tray.showSummary",
+				zap.String("Clicked", "Tray show streams summary requested"))
+
+			t.showStreamsSummary()
 		}
 	}()
 
