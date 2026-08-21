@@ -135,7 +135,7 @@ func (a *App) Run(
 
 							err := a.notifier.Send(
 								notifier.Notification{
-									Title: channel + " is now live",
+									Title: channel + " is now live!",
 									Message: fmt.Sprintf(
 										"%s\nCategory: %s",
 										stream.Title,
@@ -167,8 +167,8 @@ func (a *App) Run(
 
 							err := a.notifier.Send(
 								notifier.Notification{
-									Title:   channel + " is no longer live",
-									Message: "The streamer has left the broadcast",
+									Title:   channel + " is no longer live!",
+									Message: "The streamer has left the broadcast!",
 									Icon:    a.icon,
 									URL:     stream.URL,
 								},

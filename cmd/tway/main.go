@@ -342,6 +342,30 @@ func main() {
 	trayApp := tray.NewTray(
 		logger,
 		func() {
+			logger.Info("Manual stream refresh requested")
+
+			initializeStreamStates(
+				logger,
+				platforms,
+				stateStorage,
+			)
+
+			if err := notificationService.Send(
+				notifier.Notification{
+					Title:   "tway",
+					Message: "Streams status refreshed!",
+					Icon:    *iconPath,
+				},
+			); err != nil {
+				logger.Error(
+					"Failed to send refresh notification",
+					zap.Error(err),
+				)
+			}
+
+			logger.Info("Manual stream refresh completed!")
+		},
+		func() {
 			logger.Info("Tray exit event has requested!")
 			stop()
 		},

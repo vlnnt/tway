@@ -12,17 +12,20 @@ import (
 var icon []byte
 
 type Tray struct {
-	log    *zap.Logger
-	onExit func()
+	log       *zap.Logger
+	onRefresh func()
+	onExit    func()
 }
 
 func NewTray(
 	log *zap.Logger,
+	onRefresh func(),
 	onExit func(),
 ) *Tray {
 	return &Tray{
-		log:    log,
-		onExit: onExit,
+		log:       log,
+		onRefresh: onRefresh,
+		onExit:    onExit,
 	}
 }
 
@@ -39,14 +42,25 @@ func (t *Tray) showStreamers() {
 	}
 }
 
+func (t *Tray) refreshStreamsStatus() {
+	if t.onRefresh != nil {
+		t.onRefresh()
+	}
+}
+
 func (t *Tray) onReady() {
 	systray.SetTitle("tway")
 	systray.SetTooltip("tway")
 	systray.SetIcon(icon)
 
 	show := systray.AddMenuItem(
-		"Show status",
+		"Show",
 		"Show streamers status",
+	)
+
+	refresh := systray.AddMenuItem(
+		"Refresh",
+		"Refresh streams status",
 	)
 
 	systray.AddSeparator()
@@ -62,6 +76,16 @@ func (t *Tray) onReady() {
 			)
 
 			t.showStreamers()
+		}
+	}()
+
+	go func() {
+		for range refresh.ClickedCh {
+			t.log.Info("Tray.refreshStatus",
+				zap.String("Clicked", "Tray refresh streams status"),
+			)
+
+			t.refreshStreamsStatus()
 		}
 	}()
 
