@@ -8,7 +8,7 @@ Currently supporting platforms - Kick, Twitch, Youtube, w.tv
 
 Config example:
 
-```json
+```yaml
 check: "2m"
 summary:
   enable: true 
