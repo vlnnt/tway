@@ -14,15 +14,14 @@ import (
 )
 
 type App struct {
-	icon            string
-	log             *zap.Logger
-	platform        string
-	channels        []string
-	checkInterval   time.Duration
-	summaryInterval time.Duration
-	client          client.Client
-	notifier        notifier.Notifier
-	storage         *storage.StateStorage
+	icon          string
+	log           *zap.Logger
+	platform      string
+	channels      []string
+	checkInterval time.Duration
+	client        client.Client
+	notifier      notifier.Notifier
+	storage       *storage.StateStorage
 }
 
 func NewApp(
@@ -31,21 +30,19 @@ func NewApp(
 	platform string,
 	channels []string,
 	checkInterval time.Duration,
-	summaryInterval time.Duration,
 	client client.Client,
 	notificationService notifier.Notifier,
 	storage *storage.StateStorage,
 ) *App {
 	return &App{
-		icon:            icon,
-		log:             log,
-		platform:        platform,
-		channels:        channels,
-		checkInterval:   checkInterval,
-		summaryInterval: summaryInterval,
-		client:          client,
-		notifier:        notificationService,
-		storage:         storage,
+		icon:          icon,
+		log:           log,
+		platform:      platform,
+		channels:      channels,
+		checkInterval: checkInterval,
+		client:        client,
+		notifier:      notificationService,
+		storage:       storage,
 	}
 }
 
@@ -56,8 +53,7 @@ func (a *App) Run(
 		"Starting platform worker",
 		zap.String("Platform", a.platform),
 		zap.Int("Channels", len(a.channels)),
-		zap.Duration("CheckInterval", a.checkInterval),
-		zap.Duration("SummaryInterval", a.summaryInterval),
+		zap.Duration("Check interval", a.checkInterval),
 	)
 
 	group, ctx := errgroup.WithContext(ctx)
@@ -76,19 +72,29 @@ func (a *App) Run(
 						zap.String("Channel", channel),
 						zap.Error(err),
 					)
+
 					return err
 				}
 
 				wasLive := false
+				lastStreamAt := time.Time{}
+				startedAt := time.Time{}
+
 				if state != nil {
 					wasLive = state.IsLive
+					lastStreamAt = state.LastStreamAt
+
+					if state.IsLive {
+						startedAt = state.StartedAt
+					}
 				}
 
 				a.log.Info(
 					"Channel worker started",
 					zap.String("Platform", a.platform),
 					zap.String("Channel", channel),
-					zap.Bool("WasLive", wasLive),
+					zap.Bool("Was live status", wasLive),
+					zap.Time("Started at", startedAt),
 				)
 
 				for {
@@ -121,13 +127,28 @@ func (a *App) Run(
 							continue
 						}
 
+						if !stream.LastStreamAt.IsZero() {
+							lastStreamAt = stream.LastStreamAt
+						}
+
+						if stream.IsLive {
+							if !stream.StartedAt.IsZero() {
+								startedAt = stream.StartedAt
+							}
+
+						} else {
+							startedAt = time.Time{}
+						}
+
 						a.log.Info(
 							"Stream status updated",
 							zap.String("Platform", a.platform),
 							zap.String("Channel", channel),
 							zap.Bool("Live", stream.IsLive),
 							zap.String("Title", stream.Title),
-							zap.String("Game", stream.Game),
+							zap.String("Subcategory", stream.Subcategory),
+							zap.Time("Last stream", lastStreamAt),
+							zap.Time("Started at", startedAt),
 						)
 
 						if !wasLive && stream.IsLive {
@@ -139,11 +160,12 @@ func (a *App) Run(
 
 							err := a.notifier.Send(
 								notifier.Notification{
-									Title: channel + " is now live",
+									Title: channel +
+										" is now live!",
 									Message: fmt.Sprintf(
 										"%s\nCategory: %s",
 										stream.Title,
-										stream.Game,
+										stream.Subcategory,
 									),
 									Icon: a.icon,
 									URL:  stream.URL,
@@ -171,10 +193,11 @@ func (a *App) Run(
 
 							err := a.notifier.Send(
 								notifier.Notification{
-									Title:   channel + " is no longer live",
-									Message: "The streamer has left the broadcast",
+									Title: channel +
+										" is no longer live!",
+									Message: "The streamer has left the broadcast!",
 									Icon:    a.icon,
-									URL:     stream.URL + channel,
+									URL:     stream.URL,
 								},
 							)
 
@@ -190,19 +213,19 @@ func (a *App) Run(
 							wasLive = false
 						}
 
-						err = a.storage.Save(
+						err = a.storage.Update(
 							storage.StreamState{
-								Platform:  a.platform,
-								Channel:   channel,
-								IsLive:    stream.IsLive,
-								StreamID:  stream.ID,
-								UpdatedAt: time.Now(),
+								Platform:     a.platform,
+								Channel:      channel,
+								IsLive:       stream.IsLive,
+								LastStreamAt: lastStreamAt,
+								StartedAt:    startedAt,
 							},
 						)
 
 						if err != nil {
 							a.log.Error(
-								"Failed to save stream state",
+								"Failed to update stream state",
 								zap.String("Platform", a.platform),
 								zap.String("Channel", channel),
 								zap.Error(err),

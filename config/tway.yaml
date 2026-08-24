@@ -1,0 +1,32 @@
+check: "2m"
+summary:
+  enable: true
+  interval: "10m"
+
+twitch:
+  proxy:
+    http: ""
+    socks: ""
+  channels:
+    - "forsen"
+
+kick:
+  proxy:
+    http: ""
+    socks: ""
+  channels:
+    - "forsen"
+
+youtube:
+  proxy:
+    http: "127.0.0.1:10808"
+    socks: ""
+  channels:
+    - "forsen"
+
+wtv:
+  proxy:
+    http: ""
+    socks: ""
+  channels:
+    - "forsen"

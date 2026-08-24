@@ -1,45 +1,52 @@
 # Tway
 
-Cross-platform Twitch stream watcher with desktop notifications.
+Cross-platform stream notifier with desktop notifications, tray integration and TUI.
 
-## Features
+Supported platforms:
 
-- Windows/Linux support
-- System tray application
-- Live/offline notifications
-- Multiple streamer tracking
-- Configurable check interval
+- Twitch
+- Kick
+- YouTube
+- W.TV
 
 ## Config
 
-Create `config.json`:
+Example `tway.yaml`:
 
-```json
-{
-  "check_interval": "2m",
-  "summary_interval": "10m",
-  "twitch": {
-      "http_proxy": "127.0.0.1:10808",
-      "socks_proxy": "",
-      "channels": [
-          "forsen",
-      ]
-  },
-  "kick": {
-      "http_proxy": "",
-      "socks_proxy": "127.0.0.1:10808",
-      "channels": [
-        "forsen",
-      ]
-  },
-  "youtube": {
-      "http_proxy": "127.0.0.1:10808",
-      "socks_proxy": "",
-      "channels": [
-        "forsen",
-      ]
-  }
-}
+```yaml
+check: "2m"
+
+summary:
+  enable: true
+  interval: "10m"
+
+twitch:
+  proxy:
+    http: ""
+    socks: ""
+  channels:
+    - "forsen"
+
+kick:
+  proxy:
+    http: ""
+    socks: ""
+  channels:
+    - "forsen"
+
+youtube:
+  proxy:
+    http: "127.0.0.1:10808"
+    socks: ""
+  channels:
+    - "forsen"
+
+wtv:
+  proxy:
+    http: ""
+    socks: ""
+  channels:
+    - "forsen"
 ```
 
 ## Run
@@ -54,6 +61,18 @@ Linux:
 
 ```bash
 ./tway
+```
+
+TUI:
+
+```bash
+tway.exe --tui
+```
+
+Custom config:
+
+```bash
+tway.exe --config ./tway.yaml
 ```
 
 ## Build

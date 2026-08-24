@@ -1,10 +1,50 @@
 package twitch
 
 const (
-	apiURL             = "https://gql.twitch.tv/gql"
+	maxAttempts        = 3
+	url                = "https://gql.twitch.tv/gql"
+	baseUrl            = "https://twitch.tv/"
 	clientID           = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 	streamMetadataHash = "b57f9b910f8cd1a4659d894fe7550ccc81ec9052c01e438b290fd66a040b9b93"
 )
+
+const lastBroadcastQuery = `
+	query LastBroadcast($channelLogin: String!) {
+		user(login: $channelLogin) {
+			lastBroadcast {
+				id
+				startedAt
+			}
+		}
+	}
+`
+
+type lastBroadcastRequest struct {
+	OperationName string                 `json:"operationName"`
+	Variables     lastBroadcastVariables `json:"variables"`
+	Query         string                 `json:"query"`
+}
+
+type lastBroadcastVariables struct {
+	ChannelLogin string `json:"channelLogin"`
+}
+
+type lastBroadcastResponse struct {
+	Data lastBroadcastData `json:"data"`
+}
+
+type lastBroadcastData struct {
+	User lastBroadcastUser `json:"user"`
+}
+
+type lastBroadcastUser struct {
+	LastBroadcast *lastBroadcast `json:"lastBroadcast"`
+}
+
+type lastBroadcast struct {
+	ID        string `json:"id"`
+	StartedAt string `json:"startedAt"`
+}
 
 type persistedQuery struct {
 	Version    int    `json:"version"`
@@ -26,7 +66,7 @@ type streamMetadataRequest struct {
 	Extensions    streamMetadataExtensions `json:"extensions"`
 }
 
-type gameResponse struct {
+type categoryResponse struct {
 	Name string `json:"name"`
 }
 
@@ -35,19 +75,19 @@ type broadcastResponse struct {
 }
 
 type streamResponse struct {
-	ID        string       `json:"id"`
-	Type      string       `json:"type"`
-	CreatedAt string       `json:"createdAt"`
-	Game      gameResponse `json:"game"`
-}
-
-type graphqlError struct {
-	Message string `json:"message"`
+	ID        string           `json:"id"`
+	Type      string           `json:"type"`
+	CreatedAt string           `json:"createdAt"`
+	Category  categoryResponse `json:"game"`
 }
 
 type userResponse struct {
 	LastBroadcast broadcastResponse `json:"lastBroadcast"`
 	Stream        *streamResponse   `json:"stream"`
+}
+
+type graphqlError struct {
+	Message string `json:"message"`
 }
 
 type streamMetadataResponse struct {

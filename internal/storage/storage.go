@@ -4,16 +4,20 @@ import (
 	"database/sql"
 	"fmt"
 	"sync"
+	"time"
 
+	"go.uber.org/zap"
 	_ "modernc.org/sqlite"
 )
 
 type StateStorage struct {
-	db *sql.DB
-	mu sync.RWMutex
+	logger *zap.Logger
+	db     *sql.DB
+	mu     sync.RWMutex
 }
 
 func NewStateStorage(
+	logger *zap.Logger,
 	path string,
 ) (*StateStorage, error) {
 	db, err := sql.Open("sqlite", path)
@@ -22,7 +26,8 @@ func NewStateStorage(
 	}
 
 	storage := &StateStorage{
-		db: db,
+		logger: logger,
+		db:     db,
 	}
 
 	if err := storage.migrate(); err != nil {
@@ -34,13 +39,14 @@ func NewStateStorage(
 }
 
 func (ss *StateStorage) migrate() error {
+	ss.logger.Info("Migrate database started!")
 	_, err := ss.db.Exec(`
 		CREATE TABLE IF NOT EXISTS stream_states (
 			platform TEXT NOT NULL,
 			channel TEXT NOT NULL,
 			is_live INTEGER NOT NULL,
-			stream_id TEXT NOT NULL,
-			updated_at DATETIME NOT NULL,
+			last_stream_at DATETIME NOT NULL,
+			started_at DATETIME NOT NULL,
 
 			PRIMARY KEY (platform, channel)
 		);
@@ -57,12 +63,17 @@ func (ss *StateStorage) migrate() error {
 		return fmt.Errorf("set busy timeout: %w", err)
 	}
 
+	ss.logger.Info("Migrate database completed success!")
 	return nil
 }
 
 func (ss *StateStorage) Get(
 	platform, channel string,
 ) (*StreamState, error) {
+	ss.logger.Info("Get state storage started",
+		zap.String("Platform", platform),
+		zap.String("Channel", channel),
+	)
 	ss.mu.RLock()
 	defer ss.mu.RUnlock()
 
@@ -71,22 +82,22 @@ func (ss *StateStorage) Get(
 			platform,
 			channel,
 			is_live,
-			stream_id,
-			updated_at
+			last_stream_at,
+			started_at
 		FROM stream_states
 		WHERE platform = ?
 			AND channel = ?
 	`, platform, channel)
 
-	var state StreamState
-	var live int
+	var streamState StreamState
+	var isLive int
 
 	err := row.Scan(
-		&state.Platform,
-		&state.Channel,
-		&live,
-		&state.StreamID,
-		&state.UpdatedAt,
+		&streamState.Platform,
+		&streamState.Channel,
+		&isLive,
+		&streamState.LastStreamAt,
+		&streamState.StartedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -97,13 +108,22 @@ func (ss *StateStorage) Get(
 		return nil, fmt.Errorf("get state: %w", err)
 	}
 
-	state.IsLive = live == 1
-	return &state, nil
+	streamState.IsLive = isLive == 1
+	ss.logger.Info("Get state storage completed success",
+		zap.Any("Stream state", streamState),
+	)
+	return &streamState, nil
 }
 
-func (ss *StateStorage) Save(
-	state StreamState,
+func (ss *StateStorage) Ensure(
+	platform, channel string,
+	lastStreamAt time.Time,
 ) error {
+	ss.logger.Info("Ensure state storage started",
+		zap.String("Platform", platform),
+		zap.String("Channel", channel),
+		zap.Any("Last Stream Time", lastStreamAt),
+	)
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
@@ -112,27 +132,111 @@ func (ss *StateStorage) Save(
 			platform,
 			channel,
 			is_live,
-			stream_id,
-			updated_at
+			last_stream_at,
+			started_at
 		)
-		VALUES (?, ?, ?, ?, ?)
+		VALUES (?, ?, 0, ?, ?)
 		ON CONFLICT(platform, channel)
-		DO UPDATE SET
-			is_live = excluded.is_live,
-			stream_id = excluded.stream_id,
-			updated_at = excluded.updated_at
+		DO NOTHING
 	`,
-		state.Platform,
-		state.Channel,
-		boolToInt(state.IsLive),
-		state.StreamID,
-		state.UpdatedAt,
+		platform,
+		channel,
+		lastStreamAt,
+		time.Time{},
 	)
 	if err != nil {
-		return fmt.Errorf("save state: %w", err)
+		return fmt.Errorf("ensure state: %w", err)
 	}
 
+	ss.logger.Info("Ensure state storage completed success!")
 	return nil
+}
+
+func (ss *StateStorage) Update(
+	state StreamState,
+) error {
+	ss.logger.Info("Update state storage started",
+		zap.Any("State", state))
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	result, err := ss.db.Exec(`
+		UPDATE stream_states
+		SET
+			is_live = ?,
+			last_stream_at = ?,
+			started_at = ?
+		WHERE platform = ?
+			AND channel = ?`,
+		boolToInt(state.IsLive),
+		state.LastStreamAt,
+		state.StartedAt,
+		state.Platform,
+		state.Channel,
+	)
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("get affected rows: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf(
+			"stream state not found: %s/%s",
+			state.Platform,
+			state.Channel,
+		)
+	}
+
+	ss.logger.Info("Update state storage completed success!")
+	return nil
+}
+
+func (ss *StateStorage) GetAll() ([]StreamState, error) {
+	ss.logger.Info("Get all state storage started!")
+	ss.mu.RLock()
+	defer ss.mu.RUnlock()
+
+	rows, err := ss.db.Query(`
+		SELECT
+			platform,
+			channel,
+			is_live,
+			last_stream_at,
+			started_at
+		FROM stream_states
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("get all states: %w", err)
+	}
+	defer rows.Close()
+
+	var streamState []StreamState
+	for rows.Next() {
+
+		var state StreamState
+		var isLive int
+
+		if err := rows.Scan(
+			&state.Platform,
+			&state.Channel,
+			&isLive,
+			&state.LastStreamAt,
+			&state.StartedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan state: %w", err)
+		}
+
+		state.IsLive = isLive == 1
+		streamState = append(streamState, state)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate states: %w", err)
+	}
+
+	ss.logger.Info("Get all state storage completed success!")
+	return streamState, nil
 }
 
 func (ss *StateStorage) Close() error {

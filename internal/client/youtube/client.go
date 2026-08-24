@@ -1,9 +1,9 @@
 package youtube
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"tway/internal/client"
@@ -13,21 +13,12 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	maxAttempts = 3
-
-	resolveURL = "https://www.youtube.com/youtubei/v1/navigation/resolve_url?prettyPrint=false"
-	playerURL  = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"
-
-	clientName    = "WEB"
-	clientNameID  = "1"
-	clientVersion = "2.20260708.00.00"
-)
-
 type Client struct {
-	log        *zap.Logger
-	httpClient *fasthttp.Client
-	timeout    time.Duration
+	log          *zap.Logger
+	httpClient   *fasthttp.Client
+	timeout      time.Duration
+	channelIDsMu sync.RWMutex
+	channelIDs   map[string]string
 }
 
 func NewClient(
@@ -69,6 +60,7 @@ func NewClient(
 		log:        log,
 		httpClient: httpClient,
 		timeout:    10 * time.Second,
+		channelIDs: make(map[string]string),
 	}
 }
 
@@ -92,15 +84,18 @@ func (c *Client) GetStream(
 
 		lastErr = err
 		if attempt < maxAttempts {
+			delay := client.RetryDelay(attempt)
+
 			c.log.Warn(
 				"Failed to get YouTube stream, retrying",
 				zap.String("Channel", channel),
 				zap.Int("Attempt", attempt),
-				zap.Int("MaxAttempts", maxAttempts),
+				zap.Int("Max attempts", maxAttempts),
+				zap.Duration("Retry in", delay),
 				zap.Error(err),
 			)
 
-			time.Sleep(3 * time.Second)
+			time.Sleep(delay)
 		}
 	}
 
@@ -120,7 +115,33 @@ func (c *Client) getStream(
 		zap.String("Channel", channel),
 	)
 
-	videoID, err := c.resolveLiveVideoID(channel)
+	channelID, err := c.resolveChannelID(channel)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"resolve YouTube channel ID: %w",
+			err,
+		)
+	}
+
+	streamResult := &client.Stream{
+		Channel: channel,
+		URL:     baseUrl + channel,
+		IsLive:  false,
+	}
+
+	lastStream, err := c.getLastStream(channel)
+	if err != nil {
+		c.log.Warn(
+			"Failed to get last YouTube stream",
+			zap.String("Channel", channel),
+			zap.Error(err),
+		)
+
+	} else if lastStream != nil {
+		streamResult.LastStreamAt = lastStream.LastStreamAt
+	}
+
+	videoID, err := c.resolveLiveVideoID(channelID)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"resolve YouTube live video: %w",
@@ -132,19 +153,16 @@ func (c *Client) getStream(
 		c.log.Info(
 			"YouTube channel is offline",
 			zap.String("Channel", channel),
+			zap.Time(
+				"Last stream",
+				streamResult.LastStreamAt,
+			),
 		)
 
-		return &client.Stream{
-			Channel: channel,
-			URL:     "https://www.youtube.com/@" + channel,
-			IsLive:  false,
-		}, nil
+		return streamResult, nil
 	}
 
-	stream, err := c.getPlayerStream(
-		channel,
-		videoID,
-	)
+	stream, err := c.getPlayerStream(channel, videoID)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"get YouTube player info: %w",
@@ -156,207 +174,29 @@ func (c *Client) getStream(
 		c.log.Info(
 			"YouTube channel is offline",
 			zap.String("Channel", channel),
+			zap.Time(
+				"Last stream",
+				streamResult.LastStreamAt,
+			),
 		)
 
-		return stream, nil
-	}
-
-	c.log.Info(
-		"YouTube channel is live",
-		zap.String("Channel", stream.Channel),
-		zap.String("Game", stream.Game),
-		zap.String("Title", stream.Title),
-	)
-
-	return stream, nil
-}
-
-func (c *Client) resolveLiveVideoID(
-	channel string,
-) (string, error) {
-	requestBody := resolveRequest{
-		Context: innertubeContext{
-			Client: innertubeClient{
-				ClientName:    clientName,
-				ClientVersion: clientVersion,
-			},
-		},
-		URL: "https://www.youtube.com/@" + channel + "/live",
-	}
-
-	body, err := json.Marshal(requestBody)
-	if err != nil {
-		return "", fmt.Errorf("encode YouTube resolve request: %w", err)
-	}
-
-	request := fasthttp.AcquireRequest()
-	response := fasthttp.AcquireResponse()
-
-	defer fasthttp.ReleaseRequest(request)
-	defer fasthttp.ReleaseResponse(response)
-
-	request.SetRequestURI(resolveURL)
-	request.Header.SetMethod(fasthttp.MethodPost)
-	request.Header.SetContentType("application/json")
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "Mozilla/5.0")
-	request.Header.Set("X-Youtube-Client-Name", clientNameID)
-	request.Header.Set("X-Youtube-Client-Version", clientVersion)
-	request.SetBody(body)
-
-	c.log.Info(
-		"Sending YouTube resolve request",
-		zap.String("URL", resolveURL),
-	)
-
-	if err := c.httpClient.DoTimeout(
-		request,
-		response,
-		c.timeout,
-	); err != nil {
-		return "", fmt.Errorf("send YouTube resolve request: %w", err)
-	}
-
-	c.log.Info(
-		"YouTube resolve response received",
-		zap.Int("StatusCode", response.StatusCode()),
-	)
-
-	if response.StatusCode() != fasthttp.StatusOK {
-		c.log.Warn(
-			"YouTube resolve endpoint returned an unexpected response",
-			zap.Int("StatusCode", response.StatusCode()),
-			zap.ByteString("Body", response.Body()),
-		)
-
-		return "", fmt.Errorf(
-			"YouTube resolve endpoint returned status %d: %s",
-			response.StatusCode(),
-			string(response.Body()),
-		)
-	}
-
-	var result resolveResponse
-	if err := json.Unmarshal(
-		response.Body(),
-		&result,
-	); err != nil {
-		return "", fmt.Errorf("decode YouTube resolve response: %w", err)
-	}
-
-	return result.Endpoint.WatchEndpoint.VideoID, nil
-}
-
-func (c *Client) getPlayerStream(
-	channel, videoID string,
-) (*client.Stream, error) {
-	requestBody := playerRequest{
-		Context: innertubeContext{
-			Client: innertubeClient{
-				ClientName:    clientName,
-				ClientVersion: clientVersion,
-				HL:            "en",
-			},
-		},
-		VideoID: videoID,
-	}
-
-	body, err := json.Marshal(requestBody)
-	if err != nil {
-		return nil, fmt.Errorf("encode YouTube player request: %w", err)
-	}
-
-	request := fasthttp.AcquireRequest()
-	response := fasthttp.AcquireResponse()
-
-	defer fasthttp.ReleaseRequest(request)
-	defer fasthttp.ReleaseResponse(response)
-
-	request.SetRequestURI(playerURL)
-	request.Header.SetMethod(fasthttp.MethodPost)
-	request.Header.SetContentType("application/json")
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "Mozilla/5.0")
-	request.Header.Set("X-Youtube-Client-Name", clientNameID)
-	request.Header.Set("X-Youtube-Client-Version", clientVersion)
-	request.SetBody(body)
-
-	c.log.Info(
-		"Sending YouTube player request",
-		zap.String("URL", playerURL),
-		zap.String("VideoID", videoID),
-	)
-
-	if err := c.httpClient.DoTimeout(
-		request,
-		response,
-		c.timeout,
-	); err != nil {
-		return nil, fmt.Errorf(
-			"send YouTube player request: %w",
-			err,
-		)
-	}
-
-	c.log.Info(
-		"YouTube player response received",
-		zap.Int("StatusCode", response.StatusCode()),
-	)
-
-	if response.StatusCode() != fasthttp.StatusOK {
-		c.log.Warn(
-			"YouTube player endpoint returned an unexpected response",
-			zap.Int("StatusCode", response.StatusCode()),
-			zap.ByteString("Body", response.Body()),
-		)
-
-		return nil, fmt.Errorf(
-			"YouTube player endpoint returned status %d: %s",
-			response.StatusCode(),
-			string(response.Body()),
-		)
-	}
-
-	var result playerResponse
-	if err := json.Unmarshal(
-		response.Body(),
-		&result,
-	); err != nil {
-		return nil, fmt.Errorf("decode YouTube player response: %w", err)
-	}
-
-	streamResult := &client.Stream{
-		ID:      videoID,
-		Channel: channel,
-		URL:     "https://www.youtube.com/watch?v=" + videoID,
-		IsLive:  false,
-	}
-
-	live := result.Microformat.
-		PlayerMicroformatRenderer.
-		LiveBroadcastDetails
-
-	if !live.IsLiveNow {
 		return streamResult, nil
 	}
 
-	startedAt, err := time.Parse(
-		time.RFC3339,
-		live.StartTimestamp,
-	)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"parse YouTube stream start time: %w",
-			err,
-		)
-	}
-
-	streamResult.ID = result.VideoDetails.VideoID
-	streamResult.Title = result.VideoDetails.Title
-	streamResult.Game = result.Microformat.
-		PlayerMicroformatRenderer.Category
-	streamResult.StartedAt = startedAt
+	streamResult.Title = stream.Title
+	streamResult.Subcategory = stream.Subcategory
+	streamResult.URL = stream.URL
 	streamResult.IsLive = true
+	streamResult.StartedAt = stream.StartedAt
+
+	c.log.Info(
+		"YouTube channel is live",
+		zap.String("Channel", streamResult.Channel),
+		zap.String("Subcategory", streamResult.Subcategory),
+		zap.String("Title", streamResult.Title),
+		zap.Time("Last stream", streamResult.LastStreamAt),
+		zap.Time("Started at", streamResult.StartedAt),
+	)
 
 	return streamResult, nil
 }

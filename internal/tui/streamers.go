@@ -1,8 +1,12 @@
 package tui
 
 import (
+	"fmt"
 	"os/exec"
 	"runtime"
+	"sort"
+	"strings"
+	"time"
 
 	"tway/internal/client"
 
@@ -10,9 +14,43 @@ import (
 	"github.com/rivo/tview"
 )
 
+const (
+	loadingViewWidth      = 50
+	loadingViewHeight     = 5
+	errorViewWidth        = 70
+	errorViewHeight       = 7
+	platformMenuWidth     = 18
+	statusMenuWidth       = 16
+	statusBarHeight       = 1
+	loadingFrameInterval  = 80 * time.Millisecond
+	streamRefreshInterval = 5 * time.Second
+	tableHeaderRow        = 0
+	tableFirstDataRow     = 1
+	platformMenuFirstRow  = 1
+	streamerColumn        = 0
+	statusColumn          = 1
+	lastStreamColumn      = 2
+	liveForColumn         = 3
+	columnExpansion       = 1
+)
+
+type Loader func() ([]*client.Stream, error)
+
 type TUI struct {
 	application *tview.Application
 }
+
+var platforms = []string{
+	"Twitch",
+	"Kick",
+	"YouTube",
+	"W.TV",
+}
+
+var moscowLocation = time.FixedZone(
+	"MSK",
+	3*60*60,
+)
 
 func NewTUI() *TUI {
 	return &TUI{
@@ -21,44 +59,288 @@ func NewTUI() *TUI {
 }
 
 func (u *TUI) ShowStreamers(
-	states []*client.Stream,
+	load Loader,
 ) error {
+	loading := tview.NewTextView().
+		SetTextAlign(tview.AlignCenter).
+		SetDynamicColors(true)
+
+	loading.SetBorder(true).
+		SetTitle(" Streams ").
+		SetTitleAlign(tview.AlignCenter)
+
+	u.application.SetRoot(
+		centerPrimitive(
+			loading,
+			loadingViewWidth,
+			loadingViewHeight,
+		),
+		true,
+	)
+
+	go u.loadStreams(loading, load)
+	return u.application.
+		EnableMouse(true).
+		Run()
+}
+
+func (u *TUI) loadStreams(
+	loading *tview.TextView,
+	load Loader,
+) {
+	frames := []string{
+		"|",
+		"/",
+		"-",
+		"\\",
+	}
+
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(loadingFrameInterval)
+		defer ticker.Stop()
+		frame := 0
+
+		for {
+			select {
+			case <-done:
+				return
+
+			case <-ticker.C:
+				currentFrame := frames[frame%len(frames)]
+				frame++
+				u.application.QueueUpdateDraw(
+					func() {
+						loading.SetText(
+							fmt.Sprintf(
+								"\nLoading streams status %s",
+								currentFrame,
+							),
+						)
+					},
+				)
+			}
+		}
+	}()
+
+	states, err := load()
+	close(done)
+
+	if err != nil {
+		u.application.QueueUpdateDraw(
+			func() {
+				errorView := buildErrorView(err)
+				u.application.SetRoot(
+					centerPrimitive(
+						errorView,
+						errorViewWidth,
+						errorViewHeight,
+					),
+					true,
+				)
+			},
+		)
+
+		return
+	}
+
+	view := buildStreamsView(
+		u.application,
+		states,
+		load,
+	)
+
+	u.application.QueueUpdateDraw(
+		func() {
+			u.application.SetRoot(
+				view,
+				true,
+			)
+		},
+	)
+}
+
+func buildStreamsView(
+	application *tview.Application,
+	states []*client.Stream,
+	load Loader,
+) tview.Primitive {
+	activePlatform := 0
+	lastRefresh := time.Now()
+
 	table := tview.NewTable().
 		SetBorders(true).
 		SetSelectable(false, false)
 
-	table.SetTitle(" Streamers ").
-		SetBorder(true)
+	table.SetBorder(true)
+	platformMenu := tview.NewTable().
+		SetSelectable(false, false)
+
+	platformMenu.SetBorder(true).
+		SetTitle(" Platforms ").
+		SetTitleAlign(tview.AlignCenter)
+
+	statusBar := tview.NewTextView().
+		SetTextAlign(tview.AlignCenter).
+		SetDynamicColors(true)
+
+	var update func()
+	update = func() {
+		platform := platforms[activePlatform]
+		filteredStates := filterStreams(states, platform)
+
+		updateTable(
+			table,
+			filteredStates,
+			platform,
+		)
+
+		updatePlatformMenu(
+			platformMenu,
+			activePlatform,
+			func(index int) {
+				activePlatform = index
+				update()
+			},
+		)
+
+		updateStatusBar(
+			statusBar,
+			filteredStates,
+			lastRefresh,
+		)
+	}
+
+	update()
+	go func() {
+		ticker := time.NewTicker(streamRefreshInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			newStates, err := load()
+			if err != nil {
+				continue
+			}
+
+			application.QueueUpdateDraw(
+				func() {
+					states = newStates
+					lastRefresh = time.Now()
+					update()
+				},
+			)
+		}
+	}()
+
+	mainLayout := tview.NewFlex().
+		SetDirection(tview.FlexColumn).
+		AddItem(platformMenu, platformMenuWidth, 0, false).
+		AddItem(table, 0, 1, false)
+
+	statusLayout := tview.NewFlex().
+		SetDirection(tview.FlexColumn).
+		AddItem(nil, statusMenuWidth, 0, false).
+		AddItem(statusBar, 0, 1, false)
+
+	layout := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(mainLayout, 0, 1, false).
+		AddItem(statusLayout, statusBarHeight, 0, false)
+
+	layout.SetInputCapture(
+		func(event *tcell.EventKey) *tcell.EventKey {
+			switch event.Key() {
+			case tcell.KeyTAB:
+				activePlatform++
+				if activePlatform >= len(platforms) {
+					activePlatform = 0
+				}
+
+				update()
+				return nil
+
+			case tcell.KeyBacktab:
+				activePlatform--
+				if activePlatform < 0 {
+					activePlatform = len(platforms) - 1
+				}
+
+				update()
+				return nil
+
+			case tcell.KeyEscape:
+				application.Stop()
+				return nil
+
+			case tcell.KeyRune:
+				switch event.Rune() {
+				case 'q', 'Q':
+					application.Stop()
+					return nil
+				}
+			}
+
+			return event
+		},
+	)
+
+	return layout
+}
+
+func updateTable(
+	table *tview.Table,
+	states []*client.Stream,
+	platform string,
+) {
+	table.Clear()
+	table.SetTitle(
+		fmt.Sprintf(
+			" %s Streams ",
+			platform,
+		),
+	)
 
 	table.SetCell(
-		0,
-		0,
+		tableHeaderRow,
+		streamerColumn,
 		tview.NewTableCell("Streamer").
 			SetAlign(tview.AlignCenter).
-			SetExpansion(1).
+			SetExpansion(columnExpansion).
 			SetAttributes(tcell.AttrBold),
 	)
 
 	table.SetCell(
-		0,
-		1,
+		tableHeaderRow,
+		statusColumn,
 		tview.NewTableCell("Status").
 			SetAlign(tview.AlignCenter).
-			SetExpansion(1).
+			SetExpansion(columnExpansion).
 			SetAttributes(tcell.AttrBold),
 	)
 
 	table.SetCell(
-		0,
-		2,
-		tview.NewTableCell("Link").
+		tableHeaderRow,
+		lastStreamColumn,
+		tview.NewTableCell("Last Stream").
 			SetAlign(tview.AlignCenter).
-			SetExpansion(1).
+			SetExpansion(columnExpansion).
 			SetAttributes(tcell.AttrBold),
 	)
 
-	row := 1
+	table.SetCell(
+		tableHeaderRow,
+		liveForColumn,
+		tview.NewTableCell("Live For").
+			SetAlign(tview.AlignCenter).
+			SetExpansion(columnExpansion).
+			SetAttributes(tcell.AttrBold),
+	)
+
+	row := tableFirstDataRow
 	for _, state := range states {
+		if state == nil {
+			continue
+		}
+
 		status := "OFFLINE"
 		statusColor := tcell.ColorRed
 
@@ -67,47 +349,264 @@ func (u *TUI) ShowStreamers(
 			statusColor = tcell.ColorGreen
 		}
 
-		table.SetCell(
-			row,
-			0,
-			tview.NewTableCell(state.Channel).
-				SetAlign(tview.AlignCenter),
+		lastStreamAt := "-"
+		if !state.LastStreamAt.IsZero() {
+			lastStreamAt = state.LastStreamAt.
+				In(moscowLocation).
+				Format("2006-01-02 15:04:05")
+		}
+
+		liveFor := "-"
+		if state.IsLive && !state.StartedAt.IsZero() {
+			liveFor = formatLiveFor(state.StartedAt)
+		}
+
+		url := state.URL
+		streamerCell :=
+			tview.NewTableCell(
+				fmt.Sprintf(
+					"[::u:%s]%s[-:-:-:-]",
+					url,
+					tview.Escape(state.Channel),
+				),
+			).
+				SetAlign(tview.AlignCenter).
+				SetExpansion(columnExpansion)
+
+		streamerCell.SetClickedFunc(
+			func() bool {
+				openURL(url)
+				return true
+			},
 		)
 
 		table.SetCell(
 			row,
-			1,
+			streamerColumn,
+			streamerCell,
+		)
+
+		table.SetCell(
+			row,
+			statusColumn,
 			tview.NewTableCell(status).
 				SetAlign(tview.AlignCenter).
+				SetExpansion(columnExpansion).
 				SetTextColor(statusColor).
 				SetAttributes(tcell.AttrBold),
 		)
 
-		url := state.URL
-
-		linkCell := tview.NewTableCell(url).
-			SetAlign(tview.AlignCenter).
-			SetTextColor(tcell.ColorLightSkyBlue).
-			SetAttributes(tcell.AttrUnderline)
-
-		linkCell.SetClickedFunc(func() bool {
-			openURL(url)
-			return true
-		})
+		table.SetCell(
+			row,
+			lastStreamColumn,
+			tview.NewTableCell(lastStreamAt).
+				SetAlign(tview.AlignCenter).
+				SetExpansion(columnExpansion),
+		)
 
 		table.SetCell(
 			row,
-			2,
-			linkCell,
+			liveForColumn,
+			tview.NewTableCell(liveFor).
+				SetAlign(tview.AlignCenter).
+				SetExpansion(columnExpansion),
 		)
 
 		row++
 	}
+}
 
-	return u.application.
-		SetRoot(table, true).
-		EnableMouse(true).
-		Run()
+func updateStatusBar(
+	statusBar *tview.TextView,
+	states []*client.Stream,
+	lastRefresh time.Time,
+) {
+	liveCount := 0
+	for _, state := range states {
+		if state != nil && state.IsLive {
+			liveCount++
+		}
+	}
+
+	statusBar.SetText(
+		fmt.Sprintf(
+			"Last refresh: %s | Live: %d / %d | Tab/Shift+Tab: platform | Q/Esc: quit",
+			lastRefresh.Format("15:04:05"),
+			liveCount,
+			len(states),
+		),
+	)
+}
+
+func formatLiveFor(
+	startedAt time.Time,
+) string {
+	duration := time.Since(startedAt)
+	if duration < 0 {
+		return "-"
+	}
+
+	totalMinutes := int(duration / time.Minute)
+	if totalMinutes < 60 {
+		return fmt.Sprintf(
+			"%dm",
+			totalMinutes,
+		)
+	}
+
+	hours := totalMinutes / 60
+	minutes := totalMinutes % 60
+
+	return fmt.Sprintf(
+		"%dh %dm",
+		hours,
+		minutes,
+	)
+}
+
+func updatePlatformMenu(
+	menu *tview.Table,
+	activePlatform int,
+	onSelect func(int),
+) {
+	menu.Clear()
+	for index, platform := range platforms {
+		platformIndex := index
+		text := fmt.Sprintf(
+			"    %s",
+			platform,
+		)
+
+		cell := tview.NewTableCell(text).
+			SetAlign(tview.AlignLeft).
+			SetExpansion(1)
+
+		if index == activePlatform {
+			cell.SetText(
+				fmt.Sprintf(
+					"  > %s",
+					platform,
+				)).
+				SetTextColor(tcell.ColorYellow).
+				SetAttributes(tcell.AttrBold)
+		}
+
+		cell.SetClickedFunc(
+			func() bool {
+				onSelect(platformIndex)
+				return true
+			},
+		)
+
+		menu.SetCell(
+			platformMenuFirstRow+index,
+			0,
+			cell,
+		)
+	}
+}
+
+func filterStreams(
+	states []*client.Stream,
+	platform string,
+) []*client.Stream {
+	filtered := make(
+		[]*client.Stream,
+		0,
+		len(states),
+	)
+
+	for _, state := range states {
+		if state == nil {
+			continue
+		}
+
+		if streamPlatform(state) != platform {
+			continue
+		}
+
+		filtered = append(
+			filtered,
+			state,
+		)
+	}
+
+	sort.SliceStable(
+		filtered,
+		func(i, j int) bool {
+			if filtered[i].IsLive == filtered[j].IsLive {
+				return false
+			}
+			return filtered[i].IsLive
+		},
+	)
+
+	return filtered
+}
+
+func streamPlatform(
+	stream *client.Stream,
+) string {
+	url := strings.ToLower(stream.URL)
+	switch {
+	case strings.Contains(url, "twitch.tv/"):
+		return "Twitch"
+
+	case strings.Contains(url, "kick.com/"):
+		return "Kick"
+
+	case strings.Contains(url, "youtube.com/"):
+		return "YouTube"
+
+	case strings.Contains(url, "youtu.be/"):
+		return "YouTube"
+
+	case strings.Contains(url, "w.tv/"):
+		return "W.TV"
+
+	default:
+		return ""
+	}
+}
+
+func centerPrimitive(
+	primitive tview.Primitive,
+	width, height int,
+) tview.Primitive {
+	return tview.NewFlex().
+		AddItem(nil, 0, 1, false).
+		AddItem(
+			tview.NewFlex().
+				SetDirection(tview.FlexRow).
+				AddItem(nil, 0, 1, false).
+				AddItem(primitive, height, 1, true).
+				AddItem(nil, 0, 1, false),
+			width,
+			1,
+			true,
+		).
+		AddItem(nil, 0, 1, false)
+}
+
+func buildErrorView(
+	err error,
+) *tview.TextView {
+	view := tview.NewTextView().
+		SetTextAlign(tview.AlignCenter).
+		SetDynamicColors(true)
+
+	view.SetBorder(true).
+		SetTitle(" Error ").
+		SetTitleAlign(tview.AlignCenter)
+
+	view.SetText(
+		fmt.Sprintf(
+			"\n[red]Failed to load streams status[-]\n\n%s",
+			err.Error(),
+		),
+	)
+
+	return view
 }
 
 func openURL(
