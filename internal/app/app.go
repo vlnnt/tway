@@ -76,8 +76,11 @@ func (a *App) Run(
 				}
 
 				wasLive := false
+				lastStreamAt := time.Time{}
+
 				if state != nil {
 					wasLive = state.IsLive
+					lastStreamAt = state.LastStreamAt
 				}
 
 				a.log.Info(
@@ -115,6 +118,10 @@ func (a *App) Run(
 							)
 
 							continue
+						}
+
+						if !stream.LastStreamAt.IsZero() {
+							lastStreamAt = stream.LastStreamAt
 						}
 
 						a.log.Info(
@@ -188,10 +195,10 @@ func (a *App) Run(
 
 						err = a.storage.Update(
 							storage.StreamState{
-								Platform:  a.platform,
-								Channel:   channel,
-								IsLive:    stream.IsLive,
-								UpdatedAt: time.Now(),
+								Platform:     a.platform,
+								Channel:      channel,
+								IsLive:       stream.IsLive,
+								LastStreamAt: lastStreamAt,
 							},
 						)
 

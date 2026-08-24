@@ -8,6 +8,44 @@ const (
 	streamMetadataHash = "b57f9b910f8cd1a4659d894fe7550ccc81ec9052c01e438b290fd66a040b9b93"
 )
 
+const lastBroadcastQuery = `
+	query LastBroadcast($channelLogin: String!) {
+		user(login: $channelLogin) {
+			lastBroadcast {
+				id
+				startedAt
+			}
+		}
+	}
+`
+
+type lastBroadcastRequest struct {
+	OperationName string                 `json:"operationName"`
+	Variables     lastBroadcastVariables `json:"variables"`
+	Query         string                 `json:"query"`
+}
+
+type lastBroadcastVariables struct {
+	ChannelLogin string `json:"channelLogin"`
+}
+
+type lastBroadcastResponse struct {
+	Data lastBroadcastData `json:"data"`
+}
+
+type lastBroadcastData struct {
+	User lastBroadcastUser `json:"user"`
+}
+
+type lastBroadcastUser struct {
+	LastBroadcast *lastBroadcast `json:"lastBroadcast"`
+}
+
+type lastBroadcast struct {
+	ID        string `json:"id"`
+	StartedAt string `json:"startedAt"`
+}
+
 type persistedQuery struct {
 	Version    int    `json:"version"`
 	SHA256Hash string `json:"sha256Hash"`

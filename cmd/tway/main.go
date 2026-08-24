@@ -205,8 +205,9 @@ func main() {
 						streams = append(
 							streams,
 							&client.Stream{
-								Channel: state.Channel,
-								IsLive:  state.IsLive,
+								Channel:      state.Channel,
+								IsLive:       state.IsLive,
+								LastStreamAt: state.LastStreamAt,
 								URL: streamURL(
 									state.Platform,
 									state.Channel,
@@ -230,6 +231,7 @@ func main() {
 			if err := stateStorage.Ensure(
 				platform.Name,
 				channel,
+				time.Time{},
 			); err != nil {
 				logger.Error(
 					"Failed to ensure stream state",

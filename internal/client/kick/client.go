@@ -3,7 +3,6 @@ package kick
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -103,7 +102,7 @@ func (c *Client) GetStream(
 func (c *Client) getStream(
 	channel string,
 ) (*client.Stream, error) {
-	url := kickApiChannelsRoute + channel
+	url := kickApiChannelsV2Route + channel
 	c.log.Info(
 		"Checking Kick channel",
 		zap.String("Channel", channel),
@@ -130,7 +129,10 @@ func (c *Client) getStream(
 		response,
 		c.timeout,
 	); err != nil {
-		return nil, fmt.Errorf("send Kick request: %w", err)
+		return nil, fmt.Errorf(
+			"send Kick request: %w",
+			err,
+		)
 	}
 
 	c.log.Info(
@@ -154,9 +156,13 @@ func (c *Client) getStream(
 
 	var channelResponse channelResponse
 	if err := json.Unmarshal(
-		response.Body(), &channelResponse,
+		response.Body(),
+		&channelResponse,
 	); err != nil {
-		return nil, fmt.Errorf("decode Kick response: %w", err)
+		return nil, fmt.Errorf(
+			"decode Kick response: %w",
+			err,
+		)
 	}
 
 	streamResult := &client.Stream{
@@ -165,26 +171,59 @@ func (c *Client) getStream(
 		IsLive:  channelResponse.Livestream != nil,
 	}
 
+	lastStreamTimestamp, err := c.getLastStreamTimestamp(channel)
+	if err != nil {
+		c.log.Warn(
+			"Failed to get last Kick stream timestamp",
+			zap.String("Channel", channel),
+			zap.Error(err),
+		)
+	}
+
+	if lastStreamTimestamp != "" {
+		lastStreamAt, parseErr := time.Parse(
+			"2006-01-02 15:04:05",
+			lastStreamTimestamp,
+		)
+		if parseErr != nil {
+			c.log.Warn(
+				"Failed to parse last Kick stream timestamp",
+				zap.String("Channel", channel),
+				zap.String("Timestamp", lastStreamTimestamp),
+				zap.Error(parseErr),
+			)
+		} else {
+			streamResult.LastStreamAt = lastStreamAt
+		}
+	}
+
 	if channelResponse.Livestream == nil {
 		c.log.Info(
 			"Kick channel is offline",
 			zap.String("Channel", channel),
+			zap.Time("Last stream", streamResult.LastStreamAt),
 		)
 
 		return streamResult, nil
 	}
 
-	streamResult.ID = strconv.FormatInt(channelResponse.Livestream.ID, 10)
 	streamResult.Title = channelResponse.Livestream.Title
-	startedAt, err := time.Parse(
-		"2006-01-02 15:04:05",
-		channelResponse.Livestream.CreatedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("parse Kick stream start time: %w", err)
+	if streamResult.LastStreamAt.IsZero() {
+		currentStreamAt, err := time.Parse(
+			"2006-01-02 15:04:05",
+			channelResponse.Livestream.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"parse current Kick stream timestamp %q: %w",
+				channelResponse.Livestream.CreatedAt,
+				err,
+			)
+		}
+
+		streamResult.LastStreamAt = currentStreamAt
 	}
 
-	streamResult.StartedAt = startedAt
 	if channelResponse.Livestream.Category != nil {
 		streamResult.Subcategory = channelResponse.Livestream.Category.Name
 	}
@@ -194,7 +233,75 @@ func (c *Client) getStream(
 		zap.String("Channel", channel),
 		zap.String("Subcategory", streamResult.Subcategory),
 		zap.String("Title", streamResult.Title),
+		zap.Time("Last stream", streamResult.LastStreamAt),
 	)
 
 	return streamResult, nil
+}
+
+func (c *Client) getLastStreamTimestamp(
+	channel string,
+) (string, error) {
+	url := kickApiChannelsV1Route + channel
+	c.log.Info(
+		"Checking last Kick stream timestamp",
+		zap.String("Channel", channel),
+	)
+
+	request := fasthttp.AcquireRequest()
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(request)
+	defer fasthttp.ReleaseResponse(response)
+
+	request.SetRequestURI(url)
+	request.Header.SetMethod(fasthttp.MethodGet)
+	request.Header.Set("User-Agent", kickUserAgent)
+	request.Header.Set("Accept", kickAcceptHeader)
+	request.Header.Set("Referer", kickBaseUrl+channel)
+
+	if err := c.httpClient.DoTimeout(
+		request,
+		response,
+		c.timeout,
+	); err != nil {
+		return "", fmt.Errorf("send Kick request: %w", err)
+	}
+
+	c.log.Info(
+		"Kick last stream timestamp response received",
+		zap.Int("Status code", response.StatusCode()),
+	)
+
+	if response.StatusCode() != fasthttp.StatusOK {
+		c.log.Warn(
+			"Kick returned an unexpected response",
+			zap.Int("Status code", response.StatusCode()),
+			zap.ByteString("Body", response.Body()),
+		)
+
+		return "", fmt.Errorf(
+			"Kick returned status %d: %s",
+			response.StatusCode(),
+			string(response.Body()),
+		)
+	}
+
+	var previousLivestreamResponse previousLivestreamsResponse
+	if err := json.Unmarshal(
+		response.Body(),
+		&previousLivestreamResponse,
+	); err != nil {
+		return "", fmt.Errorf(
+			"decode Kick previous livestreams response: %w",
+			err,
+		)
+	}
+
+	if len(previousLivestreamResponse.PreviousLivestreams) == 0 {
+		return "", nil
+	}
+
+	return previousLivestreamResponse.
+		PreviousLivestreams[0].
+		StartTime, nil
 }

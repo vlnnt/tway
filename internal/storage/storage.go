@@ -45,7 +45,7 @@ func (ss *StateStorage) migrate() error {
 			platform TEXT NOT NULL,
 			channel TEXT NOT NULL,
 			is_live INTEGER NOT NULL,
-			updated_at DATETIME NOT NULL,
+			last_stream_at DATETIME NOT NULL,
 
 			PRIMARY KEY (platform, channel)
 		);
@@ -81,7 +81,7 @@ func (ss *StateStorage) Get(
 			platform,
 			channel,
 			is_live,
-			updated_at
+			last_stream_at
 		FROM stream_states
 		WHERE platform = ?
 			AND channel = ?
@@ -94,7 +94,7 @@ func (ss *StateStorage) Get(
 		&streamState.Platform,
 		&streamState.Channel,
 		&isLive,
-		&streamState.UpdatedAt,
+		&streamState.LastStreamAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -114,10 +114,12 @@ func (ss *StateStorage) Get(
 
 func (ss *StateStorage) Ensure(
 	platform, channel string,
+	lastStreamAt time.Time,
 ) error {
 	ss.logger.Info("Ensure state storage started",
 		zap.String("Platform", platform),
 		zap.String("Channel", channel),
+		zap.Any("Last Stream Time", lastStreamAt),
 	)
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
@@ -127,7 +129,7 @@ func (ss *StateStorage) Ensure(
 			platform,
 			channel,
 			is_live,
-			updated_at
+			last_stream_at
 		)
 		VALUES (?, ?, 0, ?)
 		ON CONFLICT(platform, channel)
@@ -135,7 +137,7 @@ func (ss *StateStorage) Ensure(
 	`,
 		platform,
 		channel,
-		time.Now(),
+		lastStreamAt,
 	)
 	if err != nil {
 		return fmt.Errorf("ensure state: %w", err)
@@ -157,11 +159,11 @@ func (ss *StateStorage) Update(
 		UPDATE stream_states
 		SET
 			is_live = ?,
-			updated_at = ?
+			last_stream_at = ?
 		WHERE platform = ?
 			AND channel = ?`,
 		boolToInt(state.IsLive),
-		state.UpdatedAt,
+		state.LastStreamAt,
 		state.Platform,
 		state.Channel,
 	)
@@ -193,7 +195,7 @@ func (ss *StateStorage) GetAll() ([]StreamState, error) {
 			platform,
 			channel,
 			is_live,
-			updated_at
+			last_stream_at
 		FROM stream_states
 	`)
 	if err != nil {
@@ -211,7 +213,7 @@ func (ss *StateStorage) GetAll() ([]StreamState, error) {
 			&state.Platform,
 			&state.Channel,
 			&isLive,
-			&state.UpdatedAt,
+			&state.LastStreamAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan state: %w", err)
 		}

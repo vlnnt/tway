@@ -72,12 +72,32 @@ func initializeStreamStates(
 				continue
 			}
 
+			currentState, err := stateStorage.Get(platform.Name, channel)
+			if err != nil {
+				logger.Error(
+					"Failed to get stored stream state",
+					zap.String("Platform", platform.Name),
+					zap.String("Channel", channel),
+					zap.Error(err),
+				)
+				continue
+			}
+
+			lastStreamAt := time.Time{}
+			if currentState != nil {
+				lastStreamAt = currentState.LastStreamAt
+			}
+
+			if !stream.LastStreamAt.IsZero() {
+				lastStreamAt = stream.LastStreamAt
+			}
+
 			err = stateStorage.Update(
 				storage.StreamState{
-					Platform:  platform.Name,
-					Channel:   channel,
-					IsLive:    stream.IsLive,
-					UpdatedAt: time.Now(),
+					Platform:     platform.Name,
+					Channel:      channel,
+					IsLive:       stream.IsLive,
+					LastStreamAt: lastStreamAt,
 				},
 			)
 			if err != nil {

@@ -22,8 +22,11 @@ const (
 	loadingFrameInterval = 80 * time.Millisecond
 	tableHeaderRow       = 0
 	tableFirstDataRow    = 1
+	platformMenuFirstRow = 1
 	streamerColumn       = 0
 	statusColumn         = 1
+	lastStreamColumn     = 2
+	liveForColumn        = 3
 	columnExpansion      = 1
 )
 
@@ -132,7 +135,7 @@ func (u *TUI) loadStreams(
 		return
 	}
 
-	view := buildStreamsView(states)
+	view := buildStreamsView(u.application, states)
 	u.application.QueueUpdateDraw(
 		func() {
 			u.application.SetRoot(
@@ -144,6 +147,7 @@ func (u *TUI) loadStreams(
 }
 
 func buildStreamsView(
+	application *tview.Application,
 	states []*client.Stream,
 ) tview.Primitive {
 	activePlatform := 0
@@ -152,15 +156,15 @@ func buildStreamsView(
 		SetSelectable(false, false)
 
 	table.SetBorder(true)
-	platformMenu := tview.NewTextView().
-		SetDynamicColors(true).
-		SetTextAlign(tview.AlignLeft)
+	platformMenu := tview.NewTable().
+		SetSelectable(false, false)
 
 	platformMenu.SetBorder(true).
 		SetTitle(" Platforms ").
 		SetTitleAlign(tview.AlignCenter)
 
-	update := func() {
+	var update func()
+	update = func() {
 		platform := platforms[activePlatform]
 		updateTable(
 			table,
@@ -171,10 +175,26 @@ func buildStreamsView(
 		updatePlatformMenu(
 			platformMenu,
 			activePlatform,
+			func(index int) {
+				activePlatform = index
+				update()
+			},
 		)
 	}
 
 	update()
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			application.QueueUpdateDraw(
+				func() {
+					update()
+				},
+			)
+		}
+	}()
+
 	layout := tview.NewFlex().
 		SetDirection(tview.FlexColumn).
 		AddItem(platformMenu, platformMenuWidth, 0, false).
@@ -240,6 +260,24 @@ func updateTable(
 			SetAttributes(tcell.AttrBold),
 	)
 
+	table.SetCell(
+		tableHeaderRow,
+		lastStreamColumn,
+		tview.NewTableCell("Last Stream").
+			SetAlign(tview.AlignCenter).
+			SetExpansion(columnExpansion).
+			SetAttributes(tcell.AttrBold),
+	)
+
+	table.SetCell(
+		tableHeaderRow,
+		liveForColumn,
+		tview.NewTableCell("Live For").
+			SetAlign(tview.AlignCenter).
+			SetExpansion(columnExpansion).
+			SetAttributes(tcell.AttrBold),
+	)
+
 	row := tableFirstDataRow
 	for _, state := range states {
 		if state == nil {
@@ -254,14 +292,27 @@ func updateTable(
 			statusColor = tcell.ColorGreen
 		}
 
+		lastStreamAt := "-"
+		if !state.LastStreamAt.IsZero() {
+			lastStreamAt = state.LastStreamAt.Format("2006-01-02 15:04:05")
+		}
+
+		liveFor := "-"
+		if state.IsLive && !state.LastStreamAt.IsZero() {
+			liveFor = formatLiveFor(state.LastStreamAt)
+		}
+
 		url := state.URL
-		streamerCell := tview.NewTableCell(
-			fmt.Sprintf(
-				"[::u:%s]%s[-:-:-:-]",
-				url,
-				tview.Escape(state.Channel),
-			),
-		).SetAlign(tview.AlignCenter)
+		streamerCell :=
+			tview.NewTableCell(
+				fmt.Sprintf(
+					"[::u:%s]%s[-:-:-:-]",
+					url,
+					tview.Escape(state.Channel),
+				),
+			).
+				SetAlign(tview.AlignCenter).
+				SetExpansion(columnExpansion)
 
 		streamerCell.SetClickedFunc(
 			func() bool {
@@ -281,34 +332,95 @@ func updateTable(
 			statusColumn,
 			tview.NewTableCell(status).
 				SetAlign(tview.AlignCenter).
+				SetExpansion(columnExpansion).
 				SetTextColor(statusColor).
 				SetAttributes(tcell.AttrBold),
+		)
+
+		table.SetCell(
+			row,
+			lastStreamColumn,
+			tview.NewTableCell(lastStreamAt).
+				SetAlign(tview.AlignCenter).
+				SetExpansion(columnExpansion),
+		)
+
+		table.SetCell(
+			row,
+			liveForColumn,
+			tview.NewTableCell(liveFor).
+				SetAlign(tview.AlignCenter).
+				SetExpansion(columnExpansion),
 		)
 
 		row++
 	}
 }
 
+func formatLiveFor(
+	startedAt time.Time,
+) string {
+	duration := time.Since(startedAt)
+	if duration < 0 {
+		return "-"
+	}
+
+	totalMinutes := int(duration / time.Minute)
+	if totalMinutes < 60 {
+		return fmt.Sprintf(
+			"%dm",
+			totalMinutes,
+		)
+	}
+
+	hours := totalMinutes / 60
+	minutes := totalMinutes % 60
+
+	return fmt.Sprintf(
+		"%dh %dm",
+		hours,
+		minutes,
+	)
+}
+
 func updatePlatformMenu(
-	menu *tview.TextView,
+	menu *tview.Table,
 	activePlatform int,
+	onSelect func(int),
 ) {
 	menu.Clear()
 	for index, platform := range platforms {
-		if index == activePlatform {
-			fmt.Fprintf(
-				menu,
-				"\n  [yellow::b]> %s[-:-:-]",
-				platform,
-			)
+		platformIndex := index
+		text := fmt.Sprintf(
+			"    %s",
+			platform,
+		)
 
-			continue
+		cell := tview.NewTableCell(text).
+			SetAlign(tview.AlignLeft).
+			SetExpansion(1)
+
+		if index == activePlatform {
+			cell.SetText(
+				fmt.Sprintf(
+					"  > %s",
+					platform,
+				)).
+				SetTextColor(tcell.ColorYellow).
+				SetAttributes(tcell.AttrBold)
 		}
 
-		fmt.Fprintf(
-			menu,
-			"\n    %s",
-			platform,
+		cell.SetClickedFunc(
+			func() bool {
+				onSelect(platformIndex)
+				return true
+			},
+		)
+
+		menu.SetCell(
+			platformMenuFirstRow+index,
+			0,
+			cell,
 		)
 	}
 }
@@ -346,34 +458,19 @@ func streamPlatform(
 ) string {
 	url := strings.ToLower(stream.URL)
 	switch {
-	case strings.Contains(
-		url,
-		"twitch.tv/",
-	):
+	case strings.Contains(url, "twitch.tv/"):
 		return "Twitch"
 
-	case strings.Contains(
-		url,
-		"kick.com/",
-	):
+	case strings.Contains(url, "kick.com/"):
 		return "Kick"
 
-	case strings.Contains(
-		url,
-		"youtube.com/",
-	):
+	case strings.Contains(url, "youtube.com/"):
 		return "YouTube"
 
-	case strings.Contains(
-		url,
-		"youtu.be/",
-	):
+	case strings.Contains(url, "youtu.be/"):
 		return "YouTube"
 
-	case strings.Contains(
-		url,
-		"w.tv/",
-	):
+	case strings.Contains(url, "w.tv/"):
 		return "W.TV"
 
 	default:

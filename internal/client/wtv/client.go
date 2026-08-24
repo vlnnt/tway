@@ -130,28 +130,66 @@ func (c *Client) getStream(
 		IsLive:  false,
 	}
 
-	if !data.Channel.Live || data.Channel.LiveStream == nil {
+	lastStreamTimestamp, err := c.getLastStreamTimestamp(channel)
+	if err != nil {
+		c.log.Warn(
+			"Failed to get last W.TV stream timestamp",
+			zap.String("Channel", channel),
+			zap.Error(err),
+		)
+
+	} else if lastStreamTimestamp != "" {
+		lastStreamAt, err := time.Parse(
+			time.RFC3339Nano,
+			lastStreamTimestamp,
+		)
+
+		if err != nil {
+			c.log.Warn(
+				"Failed to parse last W.TV stream timestamp",
+				zap.String("Channel", channel),
+				zap.String("Timestamp", lastStreamTimestamp),
+				zap.Error(err),
+			)
+		} else {
+			streamResult.LastStreamAt = lastStreamAt
+		}
+	}
+
+	if !data.Channel.Live ||
+		data.Channel.LiveStream == nil {
 		c.log.Info(
 			"W.TV channel is offline",
 			zap.String("Channel", channel),
+			zap.Time("LastStreamAt", streamResult.LastStreamAt),
 		)
 
 		return streamResult, nil
 	}
 
 	stream := data.Channel.LiveStream
-	startedAt, err := time.Parse(time.RFC3339Nano, stream.StartedAt)
-	if err != nil {
-		return nil, fmt.Errorf("parse W.TV stream start time: %w", err)
-	}
-
-	streamResult.ID = stream.StreamID
 	streamResult.Title = stream.Title
-	streamResult.StartedAt = startedAt
 	streamResult.IsLive = stream.State == "started"
 
 	if stream.Subcategory != nil {
 		streamResult.Subcategory = stream.Subcategory.Name
+	}
+
+	if streamResult.LastStreamAt.IsZero() &&
+		stream.StartedAt != "" {
+		currentStreamAt, err := time.Parse(
+			time.RFC3339Nano,
+			stream.StartedAt,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf(
+				"parse W.TV stream start time: %w",
+				err,
+			)
+		}
+
+		streamResult.LastStreamAt = currentStreamAt
 	}
 
 	c.log.Info(
@@ -159,6 +197,7 @@ func (c *Client) getStream(
 		zap.String("Channel", channel),
 		zap.String("Subcategory", streamResult.Subcategory),
 		zap.String("Title", streamResult.Title),
+		zap.Time("LastStreamAt", streamResult.LastStreamAt),
 	)
 
 	return streamResult, nil
@@ -294,4 +333,81 @@ func (c *Client) getChannel(
 	}
 
 	return &channelResponse, nil
+}
+
+func (c *Client) getLastStreamTimestamp(
+	channel string,
+) (string, error) {
+	userID, err := c.resolveUserID(channel)
+	if err != nil {
+		return "", fmt.Errorf("resolve W.TV user ID: %w", err)
+	}
+
+	requestURL := channelUrl +
+		url.PathEscape(userID) +
+		"/streams" +
+		userParam
+
+	request := fasthttp.AcquireRequest()
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(request)
+	defer fasthttp.ReleaseResponse(response)
+
+	request.SetRequestURI(requestURL)
+	request.Header.SetMethod(fasthttp.MethodGet)
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", userAgent)
+
+	c.log.Info(
+		"Sending W.TV streams request",
+		zap.String("URL", requestURL),
+		zap.String("Channel", channel),
+	)
+
+	if err := c.httpClient.DoTimeout(
+		request,
+		response,
+		c.timeout,
+	); err != nil {
+		return "", fmt.Errorf("send W.TV streams request: %w", err)
+	}
+
+	c.log.Info(
+		"W.TV streams response received",
+		zap.Int("StatusCode", response.StatusCode()),
+	)
+
+	if response.StatusCode() != fasthttp.StatusOK {
+		c.log.Warn(
+			"W.TV streams endpoint returned an unexpected response",
+			zap.Int("StatusCode", response.StatusCode()),
+			zap.ByteString("Body", response.Body()),
+		)
+
+		return "", fmt.Errorf(
+			"W.TV streams endpoint returned status %d: %s",
+			response.StatusCode(),
+			string(response.Body()),
+		)
+	}
+
+	var streamsResponse streamsResponse
+	if err := json.Unmarshal(
+		response.Body(),
+		&streamsResponse,
+	); err != nil {
+		return "", fmt.Errorf(
+			"decode W.TV streams response: %w",
+			err,
+		)
+	}
+
+	for _, stream := range streamsResponse.Data {
+		if stream.State == "finished" &&
+			stream.StartedAt != "" {
+			return stream.StartedAt, nil
+		}
+	}
+
+	return "", nil
 }
