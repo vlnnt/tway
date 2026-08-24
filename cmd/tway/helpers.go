@@ -10,7 +10,10 @@ import (
 	"tway/internal/storage"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
+
+const streamInitConcurrency = 4
 
 type Platform struct {
 	Name     string
@@ -59,70 +62,84 @@ func initializeStreamStates(
 	stateStorage *storage.StateStorage,
 ) {
 	logger.Info("Initializing stream states...")
+
+	var group errgroup.Group
+	group.SetLimit(streamInitConcurrency)
+
 	for _, platform := range platforms {
 		for _, channel := range platform.Channels {
-			stream, err := platform.Client.GetStream(channel)
-			if err != nil {
-				logger.Error(
-					"Failed to get initial stream state",
-					zap.String("Platform", platform.Name),
-					zap.String("Channel", channel),
-					zap.Error(err),
-				)
-				continue
-			}
+			platform := platform
+			channel := channel
 
-			currentState, err := stateStorage.Get(platform.Name, channel)
-			if err != nil {
-				logger.Error(
-					"Failed to get stored stream state",
-					zap.String("Platform", platform.Name),
-					zap.String("Channel", channel),
-					zap.Error(err),
-				)
-				continue
-			}
+			group.Go(func() error {
+				stream, err := platform.Client.GetStream(channel)
+				if err != nil {
+					logger.Error(
+						"Failed to get initial stream state",
+						zap.String("Platform", platform.Name),
+						zap.String("Channel", channel),
+						zap.Error(err),
+					)
 
-			lastStreamAt := time.Time{}
-			startedAt := time.Time{}
-
-			if currentState != nil {
-				lastStreamAt = currentState.LastStreamAt
-			}
-
-			if !stream.LastStreamAt.IsZero() {
-				lastStreamAt = stream.LastStreamAt
-			}
-
-			if stream.IsLive {
-				if !stream.StartedAt.IsZero() {
-					startedAt = stream.StartedAt
-				} else if currentState != nil &&
-					currentState.IsLive {
-					startedAt = currentState.StartedAt
+					return nil
 				}
-			}
 
-			err = stateStorage.Update(
-				storage.StreamState{
-					Platform:     platform.Name,
-					Channel:      channel,
-					IsLive:       stream.IsLive,
-					LastStreamAt: lastStreamAt,
-					StartedAt:    startedAt,
-				},
-			)
-			if err != nil {
-				logger.Error(
-					"Failed to update initial stream state",
-					zap.String("Platform", platform.Name),
-					zap.String("Channel", channel),
-					zap.Error(err),
+				currentState, err := stateStorage.Get(platform.Name, channel)
+				if err != nil {
+					logger.Error(
+						"Failed to get stored stream state",
+						zap.String("Platform", platform.Name),
+						zap.String("Channel", channel),
+						zap.Error(err),
+					)
+
+					return nil
+				}
+
+				lastStreamAt := time.Time{}
+				startedAt := time.Time{}
+
+				if currentState != nil {
+					lastStreamAt = currentState.LastStreamAt
+				}
+
+				if !stream.LastStreamAt.IsZero() {
+					lastStreamAt = stream.LastStreamAt
+				}
+
+				if stream.IsLive {
+					if !stream.StartedAt.IsZero() {
+						startedAt = stream.StartedAt
+					} else if currentState != nil &&
+						currentState.IsLive {
+						startedAt = currentState.StartedAt
+					}
+				}
+
+				err = stateStorage.Update(
+					storage.StreamState{
+						Platform:     platform.Name,
+						Channel:      channel,
+						IsLive:       stream.IsLive,
+						LastStreamAt: lastStreamAt,
+						StartedAt:    startedAt,
+					},
 				)
-			}
+				if err != nil {
+					logger.Error(
+						"Failed to update initial stream state",
+						zap.String("Platform", platform.Name),
+						zap.String("Channel", channel),
+						zap.Error(err),
+					)
+				}
+
+				return nil
+			})
 		}
 	}
 
+	_ = group.Wait()
 	logger.Info("Stream states initialized!")
 }
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -95,7 +96,10 @@ func main() {
 	if checkInterval <= 0 {
 		logger.Error(
 			"Check interval must be greater than zero",
-			zap.Duration("Check interval", checkInterval),
+			zap.Duration(
+				"Check interval",
+				checkInterval,
+			),
 		)
 		return
 	}
@@ -114,7 +118,10 @@ func main() {
 		if summaryInterval <= 0 {
 			logger.Error(
 				"Summary interval must be greater than zero",
-				zap.Duration("Summary interval", summaryInterval),
+				zap.Duration(
+					"Summary interval",
+					summaryInterval,
+				),
 			)
 			return
 		}
@@ -174,7 +181,6 @@ func main() {
 		return
 	}
 	defer stateStorage.Close()
-
 	logger.Info("State storage initialized!")
 
 	if *tuiMode {
@@ -216,7 +222,6 @@ func main() {
 						)
 					}
 				}
-
 				return streams, nil
 			},
 		); err != nil {
@@ -281,7 +286,10 @@ func main() {
 
 	logger.Info(
 		"Clients initialized!",
-		zap.Int("Platforms", len(platforms)),
+		zap.Int(
+			"Platforms",
+			len(platforms),
+		),
 	)
 
 	logger.Info("Ensuring stream states...")
@@ -294,8 +302,14 @@ func main() {
 			); err != nil {
 				logger.Error(
 					"Failed to ensure stream state",
-					zap.String("Platform", platform.Name),
-					zap.String("Channel", channel),
+					zap.String(
+						"Platform",
+						platform.Name,
+					),
+					zap.String(
+						"Channel",
+						channel,
+					),
 					zap.Error(err),
 				)
 				return
@@ -338,7 +352,10 @@ func main() {
 
 	logger.Info(
 		"Application initialized!",
-		zap.Int("Applications", len(applications)),
+		zap.Int(
+			"Applications",
+			len(applications),
+		),
 	)
 
 	logger.Info("Creating notify context...")
@@ -360,7 +377,10 @@ func main() {
 			if err := application.Run(ctx); err != nil {
 				logger.Error(
 					"Application stopped",
-					zap.String("Platform", platform.Name),
+					zap.String(
+						"Platform",
+						platform.Name,
+					),
 					zap.Error(err),
 				)
 				stop()
@@ -392,47 +412,71 @@ func main() {
 		)
 	}
 
+	var refreshRunning atomic.Bool
 	logger.Info("Creating tray...")
 	trayApp := tray.NewTray(
 		logger,
 		func() {
-			logger.Info("Manual stream refresh requested...")
-			if err := notificationService.Send(
-				notifier.Notification{
-					Title:   "tway",
-					Message: "Processing streams status refresh started!",
-					Icon:    *iconPath,
-				},
-			); err != nil {
-				logger.Error(
-					"Failed to send refresh notification",
-					zap.Error(err),
-				)
+			if !refreshRunning.CompareAndSwap(false, true) {
+				logger.Info("Manual stream refresh is already running!")
+
+				if err := notificationService.Send(
+					notifier.Notification{
+						Title:   "tway",
+						Message: "Manual stream refresh is already running!",
+						Icon:    *iconPath,
+					},
+				); err != nil {
+					logger.Error(
+						"Failed to send refresh notification",
+						zap.Error(err),
+					)
+				}
+
+				return
 			}
 
-			initializeStreamStates(
-				logger,
-				platforms,
-				stateStorage,
-			)
+			go func() {
+				defer refreshRunning.Store(false)
+				logger.Info("Manual stream refresh requested...")
 
-			if err := notificationService.Send(
-				notifier.Notification{
-					Title:   "tway",
-					Message: "Streams status refreshed!",
-					Icon:    *iconPath,
-				},
-			); err != nil {
-				logger.Error(
-					"Failed to send refresh notification",
-					zap.Error(err),
+				if err := notificationService.Send(
+					notifier.Notification{
+						Title:   "tway",
+						Message: "Processing streams status refresh started!",
+						Icon:    *iconPath,
+					},
+				); err != nil {
+					logger.Error(
+						"Failed to send refresh notification",
+						zap.Error(err),
+					)
+				}
+
+				initializeStreamStates(
+					logger,
+					platforms,
+					stateStorage,
 				)
-			}
 
-			logger.Info("Manual stream refresh completed!")
+				if err := notificationService.Send(
+					notifier.Notification{
+						Title:   "tway",
+						Message: "Streams status refreshed!",
+						Icon:    *iconPath,
+					},
+				); err != nil {
+					logger.Error(
+						"Failed to send refresh notification",
+						zap.Error(err),
+					)
+				}
+
+				logger.Info("Manual stream refresh completed!")
+			}()
 		},
 		func() {
-			logger.Info("Manual show streams summary requested")
+			logger.Info("Manual show streams summary requested!")
 			processOverall(
 				*iconPath,
 				logger,

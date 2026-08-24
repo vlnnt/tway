@@ -14,20 +14,21 @@ import (
 )
 
 const (
-	loadingViewWidth     = 50
-	loadingViewHeight    = 5
-	errorViewWidth       = 70
-	errorViewHeight      = 7
-	platformMenuWidth    = 18
-	loadingFrameInterval = 80 * time.Millisecond
-	tableHeaderRow       = 0
-	tableFirstDataRow    = 1
-	platformMenuFirstRow = 1
-	streamerColumn       = 0
-	statusColumn         = 1
-	lastStreamColumn     = 2
-	liveForColumn        = 3
-	columnExpansion      = 1
+	loadingViewWidth      = 50
+	loadingViewHeight     = 5
+	errorViewWidth        = 70
+	errorViewHeight       = 7
+	platformMenuWidth     = 18
+	loadingFrameInterval  = 80 * time.Millisecond
+	streamRefreshInterval = 5 * time.Second
+	tableHeaderRow        = 0
+	tableFirstDataRow     = 1
+	platformMenuFirstRow  = 1
+	streamerColumn        = 0
+	statusColumn          = 1
+	lastStreamColumn      = 2
+	liveForColumn         = 3
+	columnExpansion       = 1
 )
 
 type Loader func() ([]*client.Stream, error)
@@ -36,17 +37,17 @@ type TUI struct {
 	application *tview.Application
 }
 
-var moscowLocation = time.FixedZone(
-	"MSK",
-	3*60*60,
-)
-
 var platforms = []string{
 	"Twitch",
 	"Kick",
 	"YouTube",
 	"W.TV",
 }
+
+var moscowLocation = time.FixedZone(
+	"MSK",
+	3*60*60,
+)
 
 func NewTUI() *TUI {
 	return &TUI{
@@ -140,7 +141,12 @@ func (u *TUI) loadStreams(
 		return
 	}
 
-	view := buildStreamsView(u.application, states)
+	view := buildStreamsView(
+		u.application,
+		states,
+		load,
+	)
+
 	u.application.QueueUpdateDraw(
 		func() {
 			u.application.SetRoot(
@@ -154,6 +160,7 @@ func (u *TUI) loadStreams(
 func buildStreamsView(
 	application *tview.Application,
 	states []*client.Stream,
+	load Loader,
 ) tview.Primitive {
 	activePlatform := 0
 	table := tview.NewTable().
@@ -189,11 +196,17 @@ func buildStreamsView(
 
 	update()
 	go func() {
-		ticker := time.NewTicker(time.Minute)
+		ticker := time.NewTicker(streamRefreshInterval)
 		defer ticker.Stop()
 		for range ticker.C {
+			newStates, err := load()
+			if err != nil {
+				continue
+			}
+
 			application.QueueUpdateDraw(
 				func() {
+					states = newStates
 					update()
 				},
 			)
