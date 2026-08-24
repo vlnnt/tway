@@ -166,7 +166,6 @@ func buildStreamsView(
 	load Loader,
 ) tview.Primitive {
 	activePlatform := 0
-	lastRefresh := time.Now()
 
 	table := tview.NewTable().
 		SetBorders(true).
@@ -207,7 +206,6 @@ func buildStreamsView(
 		updateStatusBar(
 			statusBar,
 			filteredStates,
-			lastRefresh,
 		)
 	}
 
@@ -224,7 +222,6 @@ func buildStreamsView(
 			application.QueueUpdateDraw(
 				func() {
 					states = newStates
-					lastRefresh = time.Now()
 					update()
 				},
 			)
@@ -419,7 +416,6 @@ func updateTable(
 func updateStatusBar(
 	statusBar *tview.TextView,
 	states []*client.Stream,
-	lastRefresh time.Time,
 ) {
 	liveCount := 0
 	for _, state := range states {
@@ -430,8 +426,7 @@ func updateStatusBar(
 
 	statusBar.SetText(
 		fmt.Sprintf(
-			"Last refresh: %s | Live: %d / %d | Tab/Shift+Tab: platform | Q/Esc: quit",
-			lastRefresh.Format("15:04:05"),
+			"Live: %d / %d | Tab/Shift+Tab: platform | Q/Esc: quit",
 			liveCount,
 			len(states),
 		),
