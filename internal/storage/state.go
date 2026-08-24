@@ -7,4 +7,5 @@ type StreamState struct {
 	Channel      string
 	IsLive       bool
 	LastStreamAt time.Time
+	StartedAt    time.Time
 }

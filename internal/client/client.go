@@ -7,6 +7,7 @@ type Stream struct {
 	Title        string
 	Subcategory  string
 	LastStreamAt time.Time
+	StartedAt    time.Time
 	IsLive       bool
 	URL          string
 }

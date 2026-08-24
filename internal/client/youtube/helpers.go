@@ -1,6 +1,7 @@
 package youtube
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -26,7 +27,10 @@ func (c *Client) getPlayerStream(
 
 	body, err := json.Marshal(requestBody)
 	if err != nil {
-		return nil, fmt.Errorf("encode YouTube player request: %w", err)
+		return nil, fmt.Errorf(
+			"encode YouTube player request: %w",
+			err,
+		)
 	}
 
 	request := fasthttp.AcquireRequest()
@@ -54,19 +58,31 @@ func (c *Client) getPlayerStream(
 		response,
 		c.timeout,
 	); err != nil {
-		return nil, fmt.Errorf("send YouTube player request: %w", err)
+		return nil, fmt.Errorf(
+			"send YouTube player request: %w",
+			err,
+		)
 	}
 
 	c.log.Info(
 		"YouTube player response received",
-		zap.Int("Status code", response.StatusCode()),
+		zap.Int(
+			"Status code",
+			response.StatusCode(),
+		),
 	)
 
 	if response.StatusCode() != fasthttp.StatusOK {
 		c.log.Warn(
 			"YouTube player endpoint returned an unexpected response",
-			zap.Int("Status code", response.StatusCode()),
-			zap.ByteString("Body", response.Body()),
+			zap.Int(
+				"Status code",
+				response.StatusCode(),
+			),
+			zap.ByteString(
+				"Body",
+				response.Body(),
+			),
 		)
 
 		return nil, fmt.Errorf(
@@ -78,9 +94,13 @@ func (c *Client) getPlayerStream(
 
 	var playerResponse playerResponse
 	if err := json.Unmarshal(
-		response.Body(), &playerResponse,
+		response.Body(),
+		&playerResponse,
 	); err != nil {
-		return nil, fmt.Errorf("decode YouTube player response: %w", err)
+		return nil, fmt.Errorf(
+			"decode YouTube player response: %w",
+			err,
+		)
 	}
 
 	streamResult := &client.Stream{
@@ -89,12 +109,13 @@ func (c *Client) getPlayerStream(
 		IsLive:  false,
 	}
 
-	live := playerResponse.Microformat.
+	live := playerResponse.
+		Microformat.
 		PlayerMicroformatRenderer.
 		LiveBroadcastDetails
 
 	if live.StartTimestamp != "" {
-		lastStreamAt, err := time.Parse(
+		startedAt, err := time.Parse(
 			time.RFC3339Nano,
 			live.StartTimestamp,
 		)
@@ -106,16 +127,26 @@ func (c *Client) getPlayerStream(
 			)
 		}
 
-		streamResult.LastStreamAt = lastStreamAt
+		if live.IsLiveNow {
+			streamResult.StartedAt = startedAt
+		} else {
+			streamResult.LastStreamAt = startedAt
+		}
 	}
 
 	if !live.IsLiveNow {
 		return streamResult, nil
 	}
 
-	streamResult.Title = playerResponse.VideoDetails.Title
-	streamResult.Subcategory = playerResponse.
-		Microformat.PlayerMicroformatRenderer.Category
+	streamResult.Title =
+		playerResponse.VideoDetails.Title
+
+	streamResult.Subcategory =
+		playerResponse.
+			Microformat.
+			PlayerMicroformatRenderer.
+			Category
+
 	streamResult.IsLive = true
 
 	return streamResult, nil
@@ -294,10 +325,13 @@ func (c *Client) resolveLiveVideoID(
 
 func (c *Client) getLastStream(
 	channel string,
-) (string, error) {
+) (*client.Stream, error) {
 	channelID, err := c.resolveChannelID(channel)
 	if err != nil {
-		return "", fmt.Errorf("resolve YouTube channel ID: %w", err)
+		return nil, fmt.Errorf(
+			"resolve YouTube channel ID: %w",
+			err,
+		)
 	}
 
 	requestBody := browseRequest{
@@ -315,7 +349,10 @@ func (c *Client) getLastStream(
 
 	body, err := json.Marshal(requestBody)
 	if err != nil {
-		return "", fmt.Errorf("encode YouTube browse request: %w", err)
+		return nil, fmt.Errorf(
+			"encode YouTube browse request: %w",
+			err,
+		)
 	}
 
 	request := fasthttp.AcquireRequest()
@@ -343,7 +380,7 @@ func (c *Client) getLastStream(
 		response,
 		c.timeout,
 	); err != nil {
-		return "", fmt.Errorf(
+		return nil, fmt.Errorf(
 			"send YouTube last stream request: %w",
 			err,
 		)
@@ -352,61 +389,170 @@ func (c *Client) getLastStream(
 	if response.StatusCode() != fasthttp.StatusOK {
 		c.log.Warn(
 			"YouTube returned an unexpected response",
-			zap.Int("Status code", response.StatusCode()),
-			zap.ByteString("Body", response.Body()),
+			zap.Int(
+				"Status code",
+				response.StatusCode(),
+			),
+			zap.ByteString(
+				"Body",
+				response.Body(),
+			),
 		)
 
-		return "", fmt.Errorf(
+		return nil, fmt.Errorf(
 			"YouTube returned status %d: %s",
 			response.StatusCode(),
 			string(response.Body()),
 		)
 	}
 
-	videoID, err := findFirstVideoID(response.Body())
+	videoIDs, err := findVideoIDsInOrder(response.Body())
 	if err != nil {
-		return "", fmt.Errorf("find last YouTube stream video ID: %w", err)
+		return nil, fmt.Errorf(
+			"find YouTube stream video IDs: %w",
+			err,
+		)
 	}
 
-	return videoID, nil
+	if len(videoIDs) == 0 {
+		return nil, nil
+	}
+
+	limit := len(videoIDs)
+	if limit > maxLastStreamCandidates {
+		limit = maxLastStreamCandidates
+	}
+
+	for _, videoID := range videoIDs[:limit] {
+		stream, err := c.getPlayerStream(
+			channel,
+			videoID,
+		)
+		if err != nil {
+			c.log.Warn(
+				"Failed to inspect YouTube stream candidate",
+				zap.String("Channel", channel),
+				zap.String("VideoID", videoID),
+				zap.Error(err),
+			)
+
+			continue
+		}
+
+		if stream.IsLive {
+			continue
+		}
+
+		if stream.LastStreamAt.IsZero() {
+			continue
+		}
+
+		if stream.LastStreamAt.After(time.Now()) {
+			continue
+		}
+
+		c.log.Info(
+			"Last YouTube stream found",
+			zap.String("Channel", channel),
+			zap.String("VideoID", videoID),
+			zap.Time(
+				"Last stream",
+				stream.LastStreamAt,
+			),
+		)
+
+		return stream, nil
+	}
+
+	return nil, nil
 }
 
-func findFirstVideoID(
+func findVideoIDsInOrder(
 	body []byte,
-) (string, error) {
-	var value any
-	if err := json.Unmarshal(
-		body, &value,
-	); err != nil {
-		return "", fmt.Errorf("decode YouTube browse response: %w", err)
+) ([]string, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+
+	videoIDs := make([]string, 0)
+	seen := make(map[string]struct{})
+
+	var walk func() error
+	walk = func() error {
+
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+
+		delim, ok := token.(json.Delim)
+		if !ok {
+			return nil
+		}
+
+		switch delim {
+		case '{':
+			for decoder.More() {
+				keyToken, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+
+				key, ok := keyToken.(string)
+				if !ok {
+					return fmt.Errorf("unexpected JSON object key")
+				}
+
+				if key == "videoId" {
+					valueToken, err := decoder.Token()
+					if err != nil {
+						return err
+					}
+
+					videoID, ok :=
+						valueToken.(string)
+
+					if !ok || videoID == "" {
+						continue
+					}
+
+					if _, exists :=
+						seen[videoID]; exists {
+						continue
+					}
+
+					seen[videoID] = struct{}{}
+					videoIDs = append(videoIDs, videoID)
+
+					continue
+				}
+
+				if err := walk(); err != nil {
+					return err
+				}
+			}
+
+			_, err := decoder.Token()
+			return err
+
+		case '[':
+			for decoder.More() {
+				if err := walk(); err != nil {
+					return err
+				}
+			}
+
+			_, err := decoder.Token()
+			return err
+		}
+
+		return nil
 	}
 
-	return findVideoID(value), nil
-}
-
-func findVideoID(
-	value any,
-) string {
-	switch value := value.(type) {
-	case map[string]any:
-		if videoID, ok := value["videoId"].(string); ok &&
-			videoID != "" {
-			return videoID
-		}
-
-		for _, child := range value {
-			if videoID := findVideoID(child); videoID != "" {
-				return videoID
-			}
-		}
-
-	case []any:
-		for _, child := range value {
-			if videoID := findVideoID(child); videoID != "" {
-				return videoID
-			}
-		}
+	if err := walk(); err != nil {
+		return nil, fmt.Errorf(
+			"decode YouTube browse response: %w",
+			err,
+		)
 	}
 
-	return ""
+	return videoIDs, nil
 }

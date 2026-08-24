@@ -46,6 +46,7 @@ func (ss *StateStorage) migrate() error {
 			channel TEXT NOT NULL,
 			is_live INTEGER NOT NULL,
 			last_stream_at DATETIME NOT NULL,
+			started_at DATETIME NOT NULL,
 
 			PRIMARY KEY (platform, channel)
 		);
@@ -81,7 +82,8 @@ func (ss *StateStorage) Get(
 			platform,
 			channel,
 			is_live,
-			last_stream_at
+			last_stream_at,
+			started_at
 		FROM stream_states
 		WHERE platform = ?
 			AND channel = ?
@@ -95,6 +97,7 @@ func (ss *StateStorage) Get(
 		&streamState.Channel,
 		&isLive,
 		&streamState.LastStreamAt,
+		&streamState.StartedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -129,15 +132,17 @@ func (ss *StateStorage) Ensure(
 			platform,
 			channel,
 			is_live,
-			last_stream_at
+			last_stream_at,
+			started_at
 		)
-		VALUES (?, ?, 0, ?)
+		VALUES (?, ?, 0, ?, ?)
 		ON CONFLICT(platform, channel)
 		DO NOTHING
 	`,
 		platform,
 		channel,
 		lastStreamAt,
+		time.Time{},
 	)
 	if err != nil {
 		return fmt.Errorf("ensure state: %w", err)
@@ -159,11 +164,13 @@ func (ss *StateStorage) Update(
 		UPDATE stream_states
 		SET
 			is_live = ?,
-			last_stream_at = ?
+			last_stream_at = ?,
+			started_at = ?
 		WHERE platform = ?
 			AND channel = ?`,
 		boolToInt(state.IsLive),
 		state.LastStreamAt,
+		state.StartedAt,
 		state.Platform,
 		state.Channel,
 	)
@@ -195,7 +202,8 @@ func (ss *StateStorage) GetAll() ([]StreamState, error) {
 			platform,
 			channel,
 			is_live,
-			last_stream_at
+			last_stream_at,
+			started_at
 		FROM stream_states
 	`)
 	if err != nil {
@@ -214,6 +222,7 @@ func (ss *StateStorage) GetAll() ([]StreamState, error) {
 			&state.Channel,
 			&isLive,
 			&state.LastStreamAt,
+			&state.StartedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan state: %w", err)
 		}

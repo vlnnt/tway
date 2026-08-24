@@ -116,12 +116,18 @@ func (c *Client) getStream(
 
 	userID, err := c.resolveUserID(channel)
 	if err != nil {
-		return nil, fmt.Errorf("resolve W.TV user ID: %w", err)
+		return nil, fmt.Errorf(
+			"resolve W.TV user ID: %w",
+			err,
+		)
 	}
 
 	data, err := c.getChannel(userID)
 	if err != nil {
-		return nil, fmt.Errorf("get W.TV channel: %w", err)
+		return nil, fmt.Errorf(
+			"get W.TV channel: %w",
+			err,
+		)
 	}
 
 	streamResult := &client.Stream{
@@ -139,57 +145,75 @@ func (c *Client) getStream(
 		)
 
 	} else if lastStreamTimestamp != "" {
-		lastStreamAt, err := time.Parse(
+		lastStreamAt, parseErr := time.Parse(
 			time.RFC3339Nano,
 			lastStreamTimestamp,
 		)
 
-		if err != nil {
+		if parseErr != nil {
 			c.log.Warn(
 				"Failed to parse last W.TV stream timestamp",
 				zap.String("Channel", channel),
-				zap.String("Timestamp", lastStreamTimestamp),
-				zap.Error(err),
+				zap.String(
+					"Timestamp",
+					lastStreamTimestamp,
+				),
+				zap.Error(parseErr),
 			)
+
 		} else {
 			streamResult.LastStreamAt = lastStreamAt
 		}
 	}
 
-	if !data.Channel.Live ||
-		data.Channel.LiveStream == nil {
+	if !data.Channel.Live || data.Channel.LiveStream == nil {
 		c.log.Info(
 			"W.TV channel is offline",
 			zap.String("Channel", channel),
-			zap.Time("LastStreamAt", streamResult.LastStreamAt),
+			zap.Time(
+				"Last stream",
+				streamResult.LastStreamAt,
+			),
 		)
 
 		return streamResult, nil
 	}
 
 	stream := data.Channel.LiveStream
-	streamResult.Title = stream.Title
 	streamResult.IsLive = stream.State == "started"
 
+	if !streamResult.IsLive {
+		c.log.Info(
+			"W.TV channel is offline",
+			zap.String("Channel", channel),
+			zap.Time(
+				"Last stream",
+				streamResult.LastStreamAt,
+			),
+		)
+
+		return streamResult, nil
+	}
+
+	streamResult.Title = stream.Title
 	if stream.Subcategory != nil {
 		streamResult.Subcategory = stream.Subcategory.Name
 	}
 
-	if streamResult.LastStreamAt.IsZero() &&
-		stream.StartedAt != "" {
-		currentStreamAt, err := time.Parse(
+	if stream.StartedAt != "" {
+		startedAt, err := time.Parse(
 			time.RFC3339Nano,
 			stream.StartedAt,
 		)
-
 		if err != nil {
 			return nil, fmt.Errorf(
-				"parse W.TV stream start time: %w",
+				"parse W.TV stream start time %q: %w",
+				stream.StartedAt,
 				err,
 			)
 		}
 
-		streamResult.LastStreamAt = currentStreamAt
+		streamResult.StartedAt = startedAt
 	}
 
 	c.log.Info(
@@ -197,7 +221,8 @@ func (c *Client) getStream(
 		zap.String("Channel", channel),
 		zap.String("Subcategory", streamResult.Subcategory),
 		zap.String("Title", streamResult.Title),
-		zap.Time("LastStreamAt", streamResult.LastStreamAt),
+		zap.Time("Last stream", streamResult.LastStreamAt),
+		zap.Time("Started at", streamResult.StartedAt),
 	)
 
 	return streamResult, nil

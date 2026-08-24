@@ -92,13 +92,32 @@ func main() {
 		return
 	}
 
-	summaryInterval, err := time.ParseDuration(config.Summary.Interval)
-	if err != nil {
+	if checkInterval <= 0 {
 		logger.Error(
-			"Parse summary interval",
-			zap.Error(err),
+			"Check interval must be greater than zero",
+			zap.Duration("Check interval", checkInterval),
 		)
 		return
+	}
+
+	var summaryInterval time.Duration
+	if config.Summary.Enable {
+		summaryInterval, err = time.ParseDuration(config.Summary.Interval)
+		if err != nil {
+			logger.Error(
+				"Parse summary interval",
+				zap.Error(err),
+			)
+			return
+		}
+
+		if summaryInterval <= 0 {
+			logger.Error(
+				"Summary interval must be greater than zero",
+				zap.Duration("Summary interval", summaryInterval),
+			)
+			return
+		}
 	}
 
 	logger.Info(
@@ -112,48 +131,27 @@ func main() {
 		zap.Int("WTV", len(config.WTV.Channels)),
 	)
 
-	logger.Info("Initializing clients...")
 	platforms := []Platform{
 		{
 			Name:     "twitch",
 			Channels: config.Twitch.Channels,
-			Client: twitch.NewClient(
-				logger,
-				config.Twitch.Proxy.HTTP,
-				config.Twitch.Proxy.Socks,
-			),
 		},
 		{
 			Name:     "kick",
 			Channels: config.Kick.Channels,
-			Client: kick.NewClient(
-				logger,
-				config.Kick.Proxy.HTTP,
-				config.Kick.Proxy.Socks,
-			),
 		},
 		{
 			Name:     "youtube",
 			Channels: config.Youtube.Channels,
-			Client: youtube.NewClient(
-				logger,
-				config.Youtube.Proxy.HTTP,
-				config.Youtube.Proxy.Socks,
-			),
 		},
 		{
 			Name:     "wtv",
 			Channels: config.WTV.Channels,
-			Client: wtv.NewClient(
-				logger,
-				config.WTV.Proxy.HTTP,
-				config.WTV.Proxy.Socks,
-			),
 		},
 	}
 
 	logger.Info(
-		"Clients initialized!",
+		"Platform configuration initialized",
 		zap.Int(
 			"Platforms",
 			len(platforms),
@@ -163,7 +161,10 @@ func main() {
 	logger.Info("Initializing state storage...")
 	stateStorage, err := storage.NewStateStorage(
 		logger,
-		filepath.Join(exeDir, "state.db"),
+		filepath.Join(
+			exeDir,
+			"state.db",
+		),
 	)
 	if err != nil {
 		logger.Error(
@@ -175,6 +176,7 @@ func main() {
 	defer stateStorage.Close()
 
 	logger.Info("State storage initialized!")
+
 	if *tuiMode {
 		if err := tui.AttachConsole(); err != nil {
 			logger.Error(
@@ -190,10 +192,7 @@ func main() {
 				var streams []*client.Stream
 				for _, platform := range platforms {
 					for _, channel := range platform.Channels {
-						state, err := stateStorage.Get(
-							platform.Name,
-							channel,
-						)
+						state, err := stateStorage.Get(platform.Name, channel)
 						if err != nil {
 							continue
 						}
@@ -208,6 +207,7 @@ func main() {
 								Channel:      state.Channel,
 								IsLive:       state.IsLive,
 								LastStreamAt: state.LastStreamAt,
+								StartedAt:    state.StartedAt,
 								URL: streamURL(
 									state.Platform,
 									state.Channel,
@@ -222,8 +222,67 @@ func main() {
 		); err != nil {
 			return
 		}
+
 		return
 	}
+
+	logger.Info("Initializing notifier service...")
+	notificationService, err := notifier.New(logger)
+	if err != nil {
+		logger.Error(
+			"Create notifier",
+			zap.Error(err),
+		)
+		return
+	}
+
+	defer notificationService.Close()
+
+	logger.Info("Notifier service initialized!")
+
+	if err := notificationService.Send(
+		notifier.Notification{
+			Title:   "tway",
+			Message: "Initializing services and connecting to streaming platforms...",
+			Icon:    *iconPath,
+		},
+	); err != nil {
+		logger.Error(
+			"Send initialize notify error",
+			zap.Error(err),
+		)
+		return
+	}
+
+	logger.Info("Initializing clients...")
+	platforms[0].Client = twitch.NewClient(
+		logger,
+		config.Twitch.Proxy.HTTP,
+		config.Twitch.Proxy.Socks,
+	)
+
+	platforms[1].Client = kick.NewClient(
+		logger,
+		config.Kick.Proxy.HTTP,
+		config.Kick.Proxy.Socks,
+	)
+
+	platforms[2].Client = youtube.NewClient(
+		logger,
+		config.Youtube.Proxy.HTTP,
+		config.Youtube.Proxy.Socks,
+	)
+
+	platforms[3].Client = wtv.NewClient(
+		logger,
+		config.WTV.Proxy.HTTP,
+		config.WTV.Proxy.Socks,
+	)
+
+	logger.Info(
+		"Clients initialized!",
+		zap.Int("Platforms", len(platforms)),
+	)
 
 	logger.Info("Ensuring stream states...")
 	for _, platform := range platforms {
@@ -252,19 +311,6 @@ func main() {
 		stateStorage,
 	)
 
-	logger.Info("Initializing notifier service...")
-	notificationService, err := notifier.New(logger)
-	if err != nil {
-		logger.Error(
-			"Create notifier",
-			zap.Error(err),
-		)
-		return
-	}
-	defer notificationService.Close()
-
-	logger.Info("Notifier service initialized!")
-
 	logger.Info("Initializing applications...")
 	applications := make(
 		[]*app.App,
@@ -292,10 +338,7 @@ func main() {
 
 	logger.Info(
 		"Application initialized!",
-		zap.Int(
-			"Applications",
-			len(applications),
-		),
+		zap.Int("Applications", len(applications)),
 	)
 
 	logger.Info("Creating notify context...")
@@ -317,10 +360,7 @@ func main() {
 			if err := application.Run(ctx); err != nil {
 				logger.Error(
 					"Application stopped",
-					zap.String(
-						"Platform",
-						platform.Name,
-					),
+					zap.String("Platform", platform.Name),
 					zap.Error(err),
 				)
 				stop()
@@ -339,12 +379,24 @@ func main() {
 		)
 	}
 
+	if err := notificationService.Send(
+		notifier.Notification{
+			Title:   "tway",
+			Message: "Initialization completed. All services are connected and stream monitoring is active.",
+			Icon:    *iconPath,
+		},
+	); err != nil {
+		logger.Error(
+			"Send ready notify error",
+			zap.Error(err),
+		)
+	}
+
 	logger.Info("Creating tray...")
 	trayApp := tray.NewTray(
 		logger,
 		func() {
-			logger.Info("Manual stream refresh requested")
-
+			logger.Info("Manual stream refresh requested...")
 			if err := notificationService.Send(
 				notifier.Notification{
 					Title:   "tway",
@@ -381,7 +433,6 @@ func main() {
 		},
 		func() {
 			logger.Info("Manual show streams summary requested")
-
 			processOverall(
 				*iconPath,
 				logger,

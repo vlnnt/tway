@@ -160,8 +160,14 @@ func (c *Client) getStream(
 	if response.StatusCode() != fasthttp.StatusOK {
 		c.log.Warn(
 			"Twitch returned an unexpected response",
-			zap.Int("Status code", response.StatusCode()),
-			zap.ByteString("Body", response.Body()),
+			zap.Int(
+				"Status code",
+				response.StatusCode(),
+			),
+			zap.ByteString(
+				"Body",
+				response.Body(),
+			),
 		)
 
 		return nil, fmt.Errorf(
@@ -181,17 +187,22 @@ func (c *Client) getStream(
 
 	if len(metadataResponse.Errors) > 0 {
 		return nil, fmt.Errorf(
-			"Twitch GraphQL error: %s", metadataResponse.Errors[0].Message)
+			"Twitch GraphQL error: %s",
+			metadataResponse.Errors[0].Message,
+		)
 	}
 
 	if metadataResponse.Data.User == nil {
-		return nil, fmt.Errorf("Twitch channel %q not found", channel)
+		return nil, fmt.Errorf(
+			"Twitch channel %q not found",
+			channel,
+		)
 	}
 
 	streamResult := &client.Stream{
 		Channel: channel,
 		URL:     baseUrl + channel,
-		IsLive:  metadataResponse.Data.User.Stream != nil,
+		IsLive:  false,
 	}
 
 	lastStreamTimestamp, err := c.getLastStreamTimestamp(channel)
@@ -208,6 +219,7 @@ func (c *Client) getStream(
 			time.RFC3339Nano,
 			lastStreamTimestamp,
 		)
+
 		if parseErr != nil {
 			c.log.Warn(
 				"Failed to parse last Twitch stream timestamp",
@@ -224,32 +236,45 @@ func (c *Client) getStream(
 		c.log.Info(
 			"Twitch channel is offline",
 			zap.String("Channel", channel),
-			zap.Time("Last stream", streamResult.LastStreamAt),
+			zap.Time(
+				"Last stream",
+				streamResult.LastStreamAt,
+			),
 		)
 
 		return streamResult, nil
 	}
 
 	stream := metadataResponse.Data.User.Stream
-	streamResult.Title = metadataResponse.Data.User.LastBroadcast.Title
-	streamResult.Subcategory = stream.Category.Name
 	streamResult.IsLive = stream.Type == "live"
 
-	if streamResult.LastStreamAt.IsZero() {
-		currentStreamAt, err := time.Parse(
-			time.RFC3339Nano,
-			stream.CreatedAt,
+	if !streamResult.IsLive {
+		c.log.Info(
+			"Twitch channel is offline",
+			zap.String("Channel", channel),
+			zap.Time("Last stream", streamResult.LastStreamAt),
 		)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"parse current Twitch stream timestamp %q: %w",
-				stream.CreatedAt,
-				err,
-			)
-		}
 
-		streamResult.LastStreamAt = currentStreamAt
+		return streamResult, nil
 	}
+
+	startedAt, err := time.Parse(
+		time.RFC3339Nano,
+		stream.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"parse current Twitch stream timestamp %q: %w",
+			stream.CreatedAt,
+			err,
+		)
+	}
+
+	streamResult.StartedAt = startedAt
+	streamResult.Title =
+		metadataResponse.Data.User.LastBroadcast.Title
+	streamResult.Subcategory =
+		stream.Category.Name
 
 	c.log.Info(
 		"Twitch channel is live",
@@ -257,6 +282,7 @@ func (c *Client) getStream(
 		zap.String("Subcategory", streamResult.Subcategory),
 		zap.String("Title", streamResult.Title),
 		zap.Time("Last stream", streamResult.LastStreamAt),
+		zap.Time("Started at", streamResult.StartedAt),
 	)
 
 	return streamResult, nil

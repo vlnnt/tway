@@ -114,7 +114,10 @@ func (c *Client) getStream(
 
 	channelID, err := c.resolveChannelID(channel)
 	if err != nil {
-		return nil, fmt.Errorf("resolve YouTube channel ID: %w", err)
+		return nil, fmt.Errorf(
+			"resolve YouTube channel ID: %w",
+			err,
+		)
 	}
 
 	streamResult := &client.Stream{
@@ -123,7 +126,7 @@ func (c *Client) getStream(
 		IsLive:  false,
 	}
 
-	lastVideoID, err := c.getLastStream(channel)
+	lastStream, err := c.getLastStream(channel)
 	if err != nil {
 		c.log.Warn(
 			"Failed to get last YouTube stream",
@@ -131,31 +134,26 @@ func (c *Client) getStream(
 			zap.Error(err),
 		)
 
-	} else if lastVideoID != "" {
-		lastStream, err := c.getPlayerStream(channel, lastVideoID)
-		if err != nil {
-			c.log.Warn(
-				"Failed to get last YouTube stream info",
-				zap.String("Channel", channel),
-				zap.String("VideoID", lastVideoID),
-				zap.Error(err),
-			)
-
-		} else {
-			streamResult.LastStreamAt = lastStream.LastStreamAt
-		}
+	} else if lastStream != nil {
+		streamResult.LastStreamAt = lastStream.LastStreamAt
 	}
 
 	videoID, err := c.resolveLiveVideoID(channelID)
 	if err != nil {
-		return nil, fmt.Errorf("resolve YouTube live video: %w", err)
+		return nil, fmt.Errorf(
+			"resolve YouTube live video: %w",
+			err,
+		)
 	}
 
 	if videoID == "" {
 		c.log.Info(
 			"YouTube channel is offline",
 			zap.String("Channel", channel),
-			zap.Time("Last stream", streamResult.LastStreamAt),
+			zap.Time(
+				"Last stream",
+				streamResult.LastStreamAt,
+			),
 		)
 
 		return streamResult, nil
@@ -163,14 +161,20 @@ func (c *Client) getStream(
 
 	stream, err := c.getPlayerStream(channel, videoID)
 	if err != nil {
-		return nil, fmt.Errorf("get YouTube player info: %w", err)
+		return nil, fmt.Errorf(
+			"get YouTube player info: %w",
+			err,
+		)
 	}
 
 	if !stream.IsLive {
 		c.log.Info(
 			"YouTube channel is offline",
 			zap.String("Channel", channel),
-			zap.Time("Last stream", streamResult.LastStreamAt),
+			zap.Time(
+				"Last stream",
+				streamResult.LastStreamAt,
+			),
 		)
 
 		return streamResult, nil
@@ -180,10 +184,7 @@ func (c *Client) getStream(
 	streamResult.Subcategory = stream.Subcategory
 	streamResult.URL = stream.URL
 	streamResult.IsLive = true
-
-	if streamResult.LastStreamAt.IsZero() {
-		streamResult.LastStreamAt = stream.LastStreamAt
-	}
+	streamResult.StartedAt = stream.StartedAt
 
 	c.log.Info(
 		"YouTube channel is live",
@@ -191,6 +192,7 @@ func (c *Client) getStream(
 		zap.String("Subcategory", streamResult.Subcategory),
 		zap.String("Title", streamResult.Title),
 		zap.Time("Last stream", streamResult.LastStreamAt),
+		zap.Time("Started at", streamResult.StartedAt),
 	)
 
 	return streamResult, nil

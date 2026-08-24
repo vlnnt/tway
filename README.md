@@ -1,17 +1,23 @@
 # Tway
 
-Cross-platform stream notifier with desktop notifications.
+Cross-platform stream notifier with desktop notifications, tray integration and TUI.
 
-Currently supporting platforms - Kick, Twitch, Youtube, w.tv
+Supported platforms:
+
+- Twitch
+- Kick
+- YouTube
+- W.TV
 
 ## Config
 
-Config example:
+Example `tway.yaml`:
 
 ```yaml
 check: "2m"
+
 summary:
-  enable: true 
+  enable: true
   interval: "10m"
 
 twitch:
@@ -55,6 +61,18 @@ Linux:
 
 ```bash
 ./tway
+```
+
+TUI:
+
+```bash
+tway.exe --tui
+```
+
+Custom config:
+
+```bash
+tway.exe --config ./tway.yaml
 ```
 
 ## Build

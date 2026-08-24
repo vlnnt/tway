@@ -72,15 +72,21 @@ func (a *App) Run(
 						zap.String("Channel", channel),
 						zap.Error(err),
 					)
+
 					return err
 				}
 
 				wasLive := false
 				lastStreamAt := time.Time{}
+				startedAt := time.Time{}
 
 				if state != nil {
 					wasLive = state.IsLive
 					lastStreamAt = state.LastStreamAt
+
+					if state.IsLive {
+						startedAt = state.StartedAt
+					}
 				}
 
 				a.log.Info(
@@ -88,6 +94,7 @@ func (a *App) Run(
 					zap.String("Platform", a.platform),
 					zap.String("Channel", channel),
 					zap.Bool("Was live status", wasLive),
+					zap.Time("Started at", startedAt),
 				)
 
 				for {
@@ -124,6 +131,15 @@ func (a *App) Run(
 							lastStreamAt = stream.LastStreamAt
 						}
 
+						if stream.IsLive {
+							if !stream.StartedAt.IsZero() {
+								startedAt = stream.StartedAt
+							}
+
+						} else {
+							startedAt = time.Time{}
+						}
+
 						a.log.Info(
 							"Stream status updated",
 							zap.String("Platform", a.platform),
@@ -131,6 +147,8 @@ func (a *App) Run(
 							zap.Bool("Live", stream.IsLive),
 							zap.String("Title", stream.Title),
 							zap.String("Subcategory", stream.Subcategory),
+							zap.Time("Last stream", lastStreamAt),
+							zap.Time("Started at", startedAt),
 						)
 
 						if !wasLive && stream.IsLive {
@@ -142,7 +160,8 @@ func (a *App) Run(
 
 							err := a.notifier.Send(
 								notifier.Notification{
-									Title: channel + " is now live!",
+									Title: channel +
+										" is now live!",
 									Message: fmt.Sprintf(
 										"%s\nCategory: %s",
 										stream.Title,
@@ -174,7 +193,8 @@ func (a *App) Run(
 
 							err := a.notifier.Send(
 								notifier.Notification{
-									Title:   channel + " is no longer live!",
+									Title: channel +
+										" is no longer live!",
 									Message: "The streamer has left the broadcast!",
 									Icon:    a.icon,
 									URL:     stream.URL,
@@ -199,6 +219,7 @@ func (a *App) Run(
 								Channel:      channel,
 								IsLive:       stream.IsLive,
 								LastStreamAt: lastStreamAt,
+								StartedAt:    startedAt,
 							},
 						)
 

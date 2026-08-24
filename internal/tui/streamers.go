@@ -36,6 +36,11 @@ type TUI struct {
 	application *tview.Application
 }
 
+var moscowLocation = time.FixedZone(
+	"MSK",
+	3*60*60,
+)
+
 var platforms = []string{
 	"Twitch",
 	"Kick",
@@ -294,12 +299,14 @@ func updateTable(
 
 		lastStreamAt := "-"
 		if !state.LastStreamAt.IsZero() {
-			lastStreamAt = state.LastStreamAt.Format("2006-01-02 15:04:05")
+			lastStreamAt = state.LastStreamAt.
+				In(moscowLocation).
+				Format("2006-01-02 15:04:05")
 		}
 
 		liveFor := "-"
-		if state.IsLive && !state.LastStreamAt.IsZero() {
-			liveFor = formatLiveFor(state.LastStreamAt)
+		if state.IsLive && !state.StartedAt.IsZero() {
+			liveFor = formatLiveFor(state.StartedAt)
 		}
 
 		url := state.URL

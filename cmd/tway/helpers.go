@@ -84,6 +84,8 @@ func initializeStreamStates(
 			}
 
 			lastStreamAt := time.Time{}
+			startedAt := time.Time{}
+
 			if currentState != nil {
 				lastStreamAt = currentState.LastStreamAt
 			}
@@ -92,12 +94,22 @@ func initializeStreamStates(
 				lastStreamAt = stream.LastStreamAt
 			}
 
+			if stream.IsLive {
+				if !stream.StartedAt.IsZero() {
+					startedAt = stream.StartedAt
+				} else if currentState != nil &&
+					currentState.IsLive {
+					startedAt = currentState.StartedAt
+				}
+			}
+
 			err = stateStorage.Update(
 				storage.StreamState{
 					Platform:     platform.Name,
 					Channel:      channel,
 					IsLive:       stream.IsLive,
 					LastStreamAt: lastStreamAt,
+					StartedAt:    startedAt,
 				},
 			)
 			if err != nil {

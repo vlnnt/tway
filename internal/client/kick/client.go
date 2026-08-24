@@ -189,7 +189,10 @@ func (c *Client) getStream(
 			c.log.Warn(
 				"Failed to parse last Kick stream timestamp",
 				zap.String("Channel", channel),
-				zap.String("Timestamp", lastStreamTimestamp),
+				zap.String(
+					"Timestamp",
+					lastStreamTimestamp,
+				),
 				zap.Error(parseErr),
 			)
 		} else {
@@ -207,25 +210,23 @@ func (c *Client) getStream(
 		return streamResult, nil
 	}
 
-	streamResult.Title = channelResponse.Livestream.Title
-	if streamResult.LastStreamAt.IsZero() {
-		currentStreamAt, err := time.Parse(
-			"2006-01-02 15:04:05",
+	startedAt, err := time.Parse(
+		"2006-01-02 15:04:05",
+		channelResponse.Livestream.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"parse current Kick stream timestamp %q: %w",
 			channelResponse.Livestream.CreatedAt,
+			err,
 		)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"parse current Kick stream timestamp %q: %w",
-				channelResponse.Livestream.CreatedAt,
-				err,
-			)
-		}
-
-		streamResult.LastStreamAt = currentStreamAt
 	}
 
+	streamResult.StartedAt = startedAt
+	streamResult.Title = channelResponse.Livestream.Title
 	if channelResponse.Livestream.Category != nil {
-		streamResult.Subcategory = channelResponse.Livestream.Category.Name
+		streamResult.Subcategory =
+			channelResponse.Livestream.Category.Name
 	}
 
 	c.log.Info(
@@ -234,6 +235,7 @@ func (c *Client) getStream(
 		zap.String("Subcategory", streamResult.Subcategory),
 		zap.String("Title", streamResult.Title),
 		zap.Time("Last stream", streamResult.LastStreamAt),
+		zap.Time("Started at", streamResult.StartedAt),
 	)
 
 	return streamResult, nil
