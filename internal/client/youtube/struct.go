@@ -2,7 +2,7 @@ package youtube
 
 const (
 	maxAttempts             = 3
-	maxLastStreamCandidates = 10
+	maxLastStreamCandidates = 2
 
 	baseUrl           = "https://www.youtube.com/@"
 	baseWatchUrl      = "https://www.youtube.com/watch?v="

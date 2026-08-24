@@ -423,6 +423,7 @@ func (c *Client) getLastStream(
 		limit = maxLastStreamCandidates
 	}
 
+	now := time.Now()
 	for _, videoID := range videoIDs[:limit] {
 		stream, err := c.getPlayerStream(
 			channel,
@@ -447,7 +448,7 @@ func (c *Client) getLastStream(
 			continue
 		}
 
-		if stream.LastStreamAt.After(time.Now()) {
+		if stream.LastStreamAt.After(now) {
 			continue
 		}
 

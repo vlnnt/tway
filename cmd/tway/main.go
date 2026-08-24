@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"tway/internal/tui"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -240,7 +242,6 @@ func main() {
 		)
 		return
 	}
-
 	defer notificationService.Close()
 
 	logger.Info("Notifier service initialized!")
@@ -366,36 +367,44 @@ func main() {
 	)
 	defer stop()
 
+	group, ctx := errgroup.WithContext(ctx)
+
 	logger.Info("Notify context created!")
 
 	logger.Info("Running applications...")
 	for i, application := range applications {
 		application := application
 		platform := platforms[i]
+		group.Go(
+			func() error {
+				if err := application.Run(ctx); err != nil {
+					logger.Error(
+						"Application stopped",
+						zap.String("Platform", platform.Name),
+						zap.Error(err),
+					)
+					stop()
+					return err
+				}
 
-		go func() {
-			if err := application.Run(ctx); err != nil {
-				logger.Error(
-					"Application stopped",
-					zap.String(
-						"Platform",
-						platform.Name,
-					),
-					zap.Error(err),
-				)
-				stop()
-			}
-		}()
+				return nil
+			},
+		)
 	}
 
 	if config.Summary.Enable {
-		go runSummaryWorker(
-			ctx,
-			logger,
-			summaryInterval,
-			stateStorage,
-			notificationService,
-			*iconPath,
+		group.Go(
+			func() error {
+				runSummaryWorker(
+					ctx,
+					logger,
+					summaryInterval,
+					stateStorage,
+					notificationService,
+					*iconPath,
+				)
+				return nil
+			},
 		)
 	}
 
@@ -413,6 +422,8 @@ func main() {
 	}
 
 	var refreshRunning atomic.Bool
+	var refreshGroup sync.WaitGroup
+
 	logger.Info("Creating tray...")
 	trayApp := tray.NewTray(
 		logger,
@@ -432,12 +443,14 @@ func main() {
 						zap.Error(err),
 					)
 				}
-
 				return
 			}
 
+			refreshGroup.Add(1)
 			go func() {
+				defer refreshGroup.Done()
 				defer refreshRunning.Store(false)
+
 				logger.Info("Manual stream refresh requested...")
 
 				if err := notificationService.Send(
@@ -495,5 +508,14 @@ func main() {
 	logger.Info("Tray created!")
 	trayApp.Run()
 
+	stop()
+	if err := group.Wait(); err != nil {
+		logger.Error(
+			"Worker group stopped with error",
+			zap.Error(err),
+		)
+	}
+
+	refreshGroup.Wait()
 	logger.Info("Tway stopped!")
 }

@@ -80,15 +80,18 @@ func (c *Client) GetStream(
 
 		lastErr = err
 		if attempt < maxAttempts {
+			delay := client.RetryDelay(attempt)
+
 			c.log.Warn(
 				"Failed to get Twitch stream, retrying",
 				zap.String("Channel", channel),
 				zap.Int("Attempt", attempt),
 				zap.Int("Max attempts", maxAttempts),
+				zap.Duration("Retry in", delay),
 				zap.Error(err),
 			)
 
-			time.Sleep(3 * time.Second)
+			time.Sleep(delay)
 		}
 	}
 

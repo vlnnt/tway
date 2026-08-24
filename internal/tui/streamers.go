@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,6 +20,8 @@ const (
 	errorViewWidth        = 70
 	errorViewHeight       = 7
 	platformMenuWidth     = 18
+	statusMenuWidth       = 16
+	statusBarHeight       = 1
 	loadingFrameInterval  = 80 * time.Millisecond
 	streamRefreshInterval = 5 * time.Second
 	tableHeaderRow        = 0
@@ -163,6 +166,8 @@ func buildStreamsView(
 	load Loader,
 ) tview.Primitive {
 	activePlatform := 0
+	lastRefresh := time.Now()
+
 	table := tview.NewTable().
 		SetBorders(true).
 		SetSelectable(false, false)
@@ -175,12 +180,18 @@ func buildStreamsView(
 		SetTitle(" Platforms ").
 		SetTitleAlign(tview.AlignCenter)
 
+	statusBar := tview.NewTextView().
+		SetTextAlign(tview.AlignCenter).
+		SetDynamicColors(true)
+
 	var update func()
 	update = func() {
 		platform := platforms[activePlatform]
+		filteredStates := filterStreams(states, platform)
+
 		updateTable(
 			table,
-			filterStreams(states, platform),
+			filteredStates,
 			platform,
 		)
 
@@ -191,6 +202,12 @@ func buildStreamsView(
 				activePlatform = index
 				update()
 			},
+		)
+
+		updateStatusBar(
+			statusBar,
+			filteredStates,
+			lastRefresh,
 		)
 	}
 
@@ -207,16 +224,27 @@ func buildStreamsView(
 			application.QueueUpdateDraw(
 				func() {
 					states = newStates
+					lastRefresh = time.Now()
 					update()
 				},
 			)
 		}
 	}()
 
-	layout := tview.NewFlex().
+	mainLayout := tview.NewFlex().
 		SetDirection(tview.FlexColumn).
 		AddItem(platformMenu, platformMenuWidth, 0, false).
 		AddItem(table, 0, 1, false)
+
+	statusLayout := tview.NewFlex().
+		SetDirection(tview.FlexColumn).
+		AddItem(nil, statusMenuWidth, 0, false).
+		AddItem(statusBar, 0, 1, false)
+
+	layout := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(mainLayout, 0, 1, false).
+		AddItem(statusLayout, statusBarHeight, 0, false)
 
 	layout.SetInputCapture(
 		func(event *tcell.EventKey) *tcell.EventKey {
@@ -238,6 +266,17 @@ func buildStreamsView(
 
 				update()
 				return nil
+
+			case tcell.KeyEscape:
+				application.Stop()
+				return nil
+
+			case tcell.KeyRune:
+				switch event.Rune() {
+				case 'q', 'Q':
+					application.Stop()
+					return nil
+				}
 			}
 
 			return event
@@ -377,6 +416,28 @@ func updateTable(
 	}
 }
 
+func updateStatusBar(
+	statusBar *tview.TextView,
+	states []*client.Stream,
+	lastRefresh time.Time,
+) {
+	liveCount := 0
+	for _, state := range states {
+		if state != nil && state.IsLive {
+			liveCount++
+		}
+	}
+
+	statusBar.SetText(
+		fmt.Sprintf(
+			"Last refresh: %s | Live: %d / %d | Tab/Shift+Tab: platform | Q/Esc: quit",
+			lastRefresh.Format("15:04:05"),
+			liveCount,
+			len(states),
+		),
+	)
+}
+
 func formatLiveFor(
 	startedAt time.Time,
 ) string {
@@ -469,6 +530,16 @@ func filterStreams(
 			state,
 		)
 	}
+
+	sort.SliceStable(
+		filtered,
+		func(i, j int) bool {
+			if filtered[i].IsLive == filtered[j].IsLive {
+				return false
+			}
+			return filtered[i].IsLive
+		},
+	)
 
 	return filtered
 }
