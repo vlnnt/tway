@@ -189,6 +189,10 @@ func (c *Client) getStream(
 	streamResult.IsLive = true
 	streamResult.StartedAt = stream.StartedAt
 
+	if !stream.StartedAt.IsZero() {
+		streamResult.LastStreamAt = stream.StartedAt
+	}
+
 	c.log.Info(
 		"YouTube channel is live",
 		zap.String("Channel", streamResult.Channel),

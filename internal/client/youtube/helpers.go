@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
 	"tway/internal/client"
 
 	"github.com/valyala/fasthttp"
@@ -415,6 +416,11 @@ func (c *Client) getLastStream(
 	}
 
 	if len(videoIDs) == 0 {
+		c.log.Info(
+			"No YouTube stream candidates found",
+			zap.String("Channel", channel),
+		)
+
 		return nil, nil
 	}
 
@@ -422,6 +428,13 @@ func (c *Client) getLastStream(
 	if limit > maxLastStreamCandidates {
 		limit = maxLastStreamCandidates
 	}
+
+	c.log.Info(
+		"YouTube stream candidates found",
+		zap.String("Channel", channel),
+		zap.Int("Candidates", len(videoIDs)),
+		zap.Int("Checking", limit),
+	)
 
 	now := time.Now()
 	for _, videoID := range videoIDs[:limit] {
@@ -465,6 +478,12 @@ func (c *Client) getLastStream(
 		return stream, nil
 	}
 
+	c.log.Info(
+		"No valid YouTube stream found among candidates",
+		zap.String("Channel", channel),
+		zap.Int("Checked", limit),
+	)
+
 	return nil, nil
 }
 
@@ -475,6 +494,23 @@ func findVideoIDsInOrder(
 
 	videoIDs := make([]string, 0)
 	seen := make(map[string]struct{})
+
+	addVideoID := func(videoID string) {
+
+		if videoID == "" {
+			return
+		}
+
+		if _, exists := seen[videoID]; exists {
+			return
+		}
+
+		seen[videoID] = struct{}{}
+		videoIDs = append(
+			videoIDs,
+			videoID,
+		)
+	}
 
 	var walk func() error
 	walk = func() error {
@@ -502,26 +538,36 @@ func findVideoIDsInOrder(
 					return fmt.Errorf("unexpected JSON object key")
 				}
 
-				if key == "videoId" {
-					valueToken, err := decoder.Token()
-					if err != nil {
+				switch key {
+				case "videoRenderer",
+					"gridVideoRenderer",
+					"playlistVideoRenderer",
+					"compactVideoRenderer":
+					var renderer struct {
+						VideoID string `json:"videoId"`
+					}
+
+					if err := decoder.Decode(&renderer); err != nil {
 						return err
 					}
 
-					videoID, ok :=
-						valueToken.(string)
+					addVideoID(renderer.VideoID)
+					continue
 
-					if !ok || videoID == "" {
-						continue
+				case "lockupViewModel":
+					var viewModel struct {
+						ContentID   string `json:"contentId"`
+						ContentType string `json:"contentType"`
 					}
 
-					if _, exists :=
-						seen[videoID]; exists {
-						continue
+					if err := decoder.Decode(&viewModel); err != nil {
+						return err
 					}
 
-					seen[videoID] = struct{}{}
-					videoIDs = append(videoIDs, videoID)
+					if viewModel.ContentType ==
+						"LOCKUP_CONTENT_TYPE_VIDEO" {
+						addVideoID(viewModel.ContentID)
+					}
 
 					continue
 				}
