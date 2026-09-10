@@ -26,7 +26,7 @@ func OpenTerminal() error {
 		"start",
 		"tway - Streamers",
 		"cmd.exe",
-		"/k",
+		"/с",
 		exePath,
 		"--tui",
 	)
