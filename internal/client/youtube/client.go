@@ -126,19 +126,6 @@ func (c *Client) getStream(
 	streamResult := &client.Stream{
 		Channel: channel,
 		URL:     baseUrl + channel,
-		IsLive:  false,
-	}
-
-	lastStream, err := c.getLastStream(channel)
-	if err != nil {
-		c.log.Warn(
-			"Failed to get last YouTube stream",
-			zap.String("Channel", channel),
-			zap.Error(err),
-		)
-
-	} else if lastStream != nil {
-		streamResult.LastStreamAt = lastStream.LastStreamAt
 	}
 
 	videoID, err := c.resolveLiveVideoID(channelID)
@@ -149,57 +136,61 @@ func (c *Client) getStream(
 		)
 	}
 
-	if videoID == "" {
-		c.log.Info(
-			"YouTube channel is offline",
-			zap.String("Channel", channel),
-			zap.Time(
-				"Last stream",
-				streamResult.LastStreamAt,
-			),
-		)
+	if videoID != "" {
+		stream, err := c.getPlayerStream(channel, videoID)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"get YouTube player info: %w",
+				err,
+			)
+		}
 
-		return streamResult, nil
+		if stream.IsLive {
+			streamResult.Title = stream.Title
+			streamResult.Subcategory = stream.Subcategory
+			streamResult.URL = stream.URL
+			streamResult.IsLive = true
+			streamResult.StartedAt = stream.StartedAt
+
+			if !stream.StartedAt.IsZero() {
+				streamResult.LastStreamAt = stream.StartedAt
+			}
+
+			c.log.Info(
+				"YouTube channel is live",
+				zap.String("Channel", streamResult.Channel),
+				zap.String("Subcategory", streamResult.Subcategory),
+				zap.String("Title", streamResult.Title),
+				zap.Time("Last stream", streamResult.LastStreamAt),
+				zap.Time("Started at", streamResult.StartedAt),
+			)
+
+			return streamResult, nil
+		}
 	}
 
-	stream, err := c.getPlayerStream(channel, videoID)
+	lastStream, err := c.getLastStream(
+		channel,
+		channelID,
+	)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"get YouTube player info: %w",
-			err,
-		)
-	}
-
-	if !stream.IsLive {
-		c.log.Info(
-			"YouTube channel is offline",
+		c.log.Warn(
+			"Failed to get last YouTube stream",
 			zap.String("Channel", channel),
-			zap.Time(
-				"Last stream",
-				streamResult.LastStreamAt,
-			),
+			zap.Error(err),
 		)
-
-		return streamResult, nil
-	}
-
-	streamResult.Title = stream.Title
-	streamResult.Subcategory = stream.Subcategory
-	streamResult.URL = stream.URL
-	streamResult.IsLive = true
-	streamResult.StartedAt = stream.StartedAt
-
-	if !stream.StartedAt.IsZero() {
-		streamResult.LastStreamAt = stream.StartedAt
+	} else if lastStream != nil {
+		streamResult.LastStreamAt =
+			lastStream.LastStreamAt
 	}
 
 	c.log.Info(
-		"YouTube channel is live",
-		zap.String("Channel", streamResult.Channel),
-		zap.String("Subcategory", streamResult.Subcategory),
-		zap.String("Title", streamResult.Title),
-		zap.Time("Last stream", streamResult.LastStreamAt),
-		zap.Time("Started at", streamResult.StartedAt),
+		"YouTube channel is offline",
+		zap.String("Channel", channel),
+		zap.Time(
+			"Last stream",
+			streamResult.LastStreamAt,
+		),
 	)
 
 	return streamResult, nil
