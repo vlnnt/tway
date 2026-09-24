@@ -12,23 +12,26 @@ import (
 var icon []byte
 
 type Tray struct {
-	log       *zap.Logger
-	onRefresh func()
-	onSummary func()
-	onExit    func()
+	log        *zap.Logger
+	onRefresh  func()
+	onSummary  func()
+	onSettings func()
+	onExit     func()
 }
 
 func NewTray(
 	log *zap.Logger,
 	onRefresh func(),
 	onSummary func(),
+	onSettings func(),
 	onExit func(),
 ) *Tray {
 	return &Tray{
-		log:       log,
-		onRefresh: onRefresh,
-		onSummary: onSummary,
-		onExit:    onExit,
+		log:        log,
+		onRefresh:  onRefresh,
+		onSummary:  onSummary,
+		onSettings: onSettings,
+		onExit:     onExit,
 	}
 }
 
@@ -37,7 +40,7 @@ func (t *Tray) Run() {
 }
 
 func (t *Tray) showStreamers() {
-	if err := tui.OpenTerminal(); err != nil {
+	if err := tui.OpenTerminal("--tui"); err != nil {
 		t.log.Error(
 			"Tray.showStreamers.OpenTerminal",
 			zap.Error(err),
@@ -54,6 +57,12 @@ func (t *Tray) showStreamsSummary() {
 func (t *Tray) refreshStreamsStatus() {
 	if t.onRefresh != nil {
 		t.onRefresh()
+	}
+}
+
+func (t *Tray) showSettings() {
+	if t.onSettings != nil {
+		t.onSettings()
 	}
 }
 
@@ -75,6 +84,11 @@ func (t *Tray) onReady() {
 	refresh := systray.AddMenuItem(
 		"Refresh",
 		"Refresh streams status",
+	)
+
+	settings := systray.AddMenuItem(
+		"Settings",
+		"Open Tway settings",
 	)
 
 	systray.AddSeparator()
@@ -109,6 +123,20 @@ func (t *Tray) onReady() {
 			)
 
 			t.refreshStreamsStatus()
+		}
+	}()
+
+	go func() {
+		for range settings.ClickedCh {
+			t.log.Info(
+				"Tray.showSettings",
+				zap.String(
+					"Clicked",
+					"Tray settings requested",
+				),
+			)
+
+			t.showSettings()
 		}
 	}()
 

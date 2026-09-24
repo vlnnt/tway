@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 )
 
-func OpenTerminal() error {
+func OpenTerminal(
+	mode string,
+) error {
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("get executable path: %w", err)
@@ -26,27 +28,27 @@ func OpenTerminal() error {
 	}{
 		{
 			"kitty",
-			[]string{exePath, "--tui"},
+			[]string{exePath, mode},
 		},
 		{
 			"alacritty",
-			[]string{"-e", exePath, "--tui"},
+			[]string{"-e", exePath, mode},
 		},
 		{
 			"gnome-terminal",
-			[]string{"--", exePath, "--tui"},
+			[]string{"--", exePath, mode},
 		},
 		{
 			"konsole",
-			[]string{"-e", exePath, "--tui"},
+			[]string{"-e", exePath, mode},
 		},
 		{
 			"xfce4-terminal",
-			[]string{"--command", exePath + " --tui"},
+			[]string{"--command", fmt.Sprintf("%q %s", exePath, mode)},
 		},
 		{
 			"x-terminal-emulator",
-			[]string{"-e", exePath, "--tui"},
+			[]string{"-e", exePath, mode},
 		},
 	}
 

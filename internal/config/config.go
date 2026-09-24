@@ -26,6 +26,7 @@ type Proxy struct {
 }
 
 type Platform struct {
+	Enable   bool     `yaml:"enable"`
 	Proxy    Proxy    `yaml:"proxy"`
 	Channels []string `yaml:"channels"`
 }
@@ -55,15 +56,34 @@ func LoadConfig(
 	}
 
 	settings := &Config{}
-	err = yaml.Unmarshal(config, settings)
-	if err != nil {
+	if err := yaml.Unmarshal(config, settings); err != nil {
 		return nil, err
 	}
 
 	return settings, nil
 }
 
-func Get() *Config {
-	c := &Config{}
-	return c
+func SaveConfig(
+	path string, config *Config,
+) error {
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func Default() *Config {
+	return &Config{
+		Check: "2m",
+		Summary: Summary{
+			Enable:   false,
+			Interval: "10m",
+		},
+	}
 }

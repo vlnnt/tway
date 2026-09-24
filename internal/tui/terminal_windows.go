@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 )
 
-func OpenTerminal() error {
+func OpenTerminal(
+	mode string,
+) error {
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("get executable path: %w", err)
@@ -26,9 +28,9 @@ func OpenTerminal() error {
 		"start",
 		"tway - Streamers",
 		"cmd.exe",
-		"/с",
+		"/c",
 		exePath,
-		"--tui",
+		mode,
 	)
 
 	if err := cmd.Start(); err != nil {
