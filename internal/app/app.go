@@ -13,6 +13,11 @@ import (
 	"tway/internal/storage"
 )
 
+const (
+	storageReadAttempts   = 3
+	storageReadRetryDelay = time.Second
+)
+
 type App struct {
 	icon          string
 	log           *zap.Logger
@@ -61,20 +66,42 @@ func (a *App) Run(
 	for _, channel := range a.channels {
 		group.Go(func(channel string) func() error {
 			return func() error {
-				ticker := time.NewTicker(a.checkInterval)
-				defer ticker.Stop()
+				var err error
+				var state *storage.StreamState
 
-				state, err := a.storage.Get(a.platform, channel)
-				if err != nil {
+				for attempt := 1; attempt <= storageReadAttempts; attempt++ {
+					state, err = a.storage.Get(a.platform, channel)
+					if err == nil {
+						break
+					}
+
 					a.log.Error(
 						"Failed to load stream state",
 						zap.String("Platform", a.platform),
 						zap.String("Channel", channel),
+						zap.Int("Attempt", attempt),
 						zap.Error(err),
 					)
 
-					return err
+					if attempt == storageReadAttempts {
+						return fmt.Errorf(
+							"load stream state for %s/%s: %w",
+							a.platform,
+							channel,
+							err,
+						)
+					}
+
+					select {
+					case <-ctx.Done():
+						return nil
+
+					case <-time.After(storageReadRetryDelay):
+					}
 				}
+
+				ticker := time.NewTicker(a.checkInterval)
+				defer ticker.Stop()
 
 				wasLive := false
 				lastStreamAt := time.Time{}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"os"
 	"os/signal"
@@ -53,10 +54,16 @@ func main() {
 		"Open configuration setup",
 	)
 
+	bootstrapSetupMode := flag.Bool(
+		"bootstrap-setup",
+		false,
+		"Open bootstrap configuration setup",
+	)
+
 	flag.Parse()
 	var logger *zap.Logger
 
-	if *tuiMode || *setupMode {
+	if *tuiMode || *setupMode || *bootstrapSetupMode {
 		logger = zap.NewNop()
 	} else {
 		logger, err = zap.NewProduction()
@@ -95,8 +102,27 @@ func main() {
 		firstRun = true
 	}
 
-	if firstRun || *setupMode {
+	if firstRun || *setupMode || *bootstrapSetupMode {
 		if err := tui.AttachConsole(); err != nil {
+			if errors.Is(err, tui.ErrNoConsole) {
+				if *bootstrapSetupMode {
+					return
+				}
+
+				mode := "--setup"
+				if firstRun && !*setupMode {
+					mode = "--bootstrap-setup"
+				}
+
+				if err := tui.OpenTerminal(mode); err != nil {
+					logger.Error(
+						"Open setup terminal",
+						zap.Error(err),
+					)
+				}
+				return
+			}
+
 			logger.Error(
 				"tui.AttachConsole",
 				zap.Error(err),
@@ -123,6 +149,17 @@ func main() {
 				"config.SaveConfig",
 				zap.Error(err),
 			)
+			return
+		}
+
+		if *bootstrapSetupMode {
+			if err := tui.StartDetached(); err != nil {
+				logger.Error(
+					"Start tway after bootstrap",
+					zap.Error(err),
+				)
+				return
+			}
 			return
 		}
 
@@ -161,7 +198,11 @@ func main() {
 	logger.Info("State storage initialized!")
 
 	if *tuiMode {
-		platforms := buildPlatforms(logger, cfg, false)
+		platforms := buildPlatforms(
+			logger,
+			cfg,
+			false,
+		)
 
 		if err := tui.AttachConsole(); err != nil {
 			logger.Error(

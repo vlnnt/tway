@@ -31,7 +31,7 @@ func (u *TUI) ShowSetup(
 	showMainSetup = func() {
 		form := tview.NewForm()
 		form.AddInputField(
-			"Check Interval",
+			"Check interval",
 			config.Check,
 			20,
 			nil,
@@ -49,7 +49,7 @@ func (u *TUI) ShowSetup(
 		)
 
 		form.AddInputField(
-			"Summary Interval",
+			"Summary interval",
 			config.Summary.Interval,
 			20,
 			nil,
@@ -360,7 +360,6 @@ func (u *TUI) showAddChannelSetup(
 ) {
 	form := tview.NewForm()
 	channel := ""
-
 	form.AddInputField(
 		"Channel",
 		"",

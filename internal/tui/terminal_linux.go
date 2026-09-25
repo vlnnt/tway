@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 )
 
 func OpenTerminal(
@@ -66,4 +67,43 @@ func OpenTerminal(
 	}
 
 	return fmt.Errorf("no supported terminal emulator found")
+}
+
+func StartDetached() error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf(
+			"get executable path: %w",
+			err,
+		)
+	}
+
+	exePath, err = filepath.Abs(exePath)
+	if err != nil {
+		return fmt.Errorf(
+			"get absolute executable path: %w",
+			err,
+		)
+	}
+
+	cmd := exec.Command(exePath)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true,
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf(
+			"start detached tway: %w",
+			err,
+		)
+	}
+
+	if err := cmd.Process.Release(); err != nil {
+		return fmt.Errorf(
+			"release detached tway process: %w",
+			err,
+		)
+	}
+
+	return nil
 }
