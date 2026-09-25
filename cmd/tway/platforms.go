@@ -17,7 +17,7 @@ type Platform struct {
 	Client   client.Client
 }
 
-func buildPlatforms(
+func platformsFromConfig(
 	logger *zap.Logger,
 	cfg *config.Config,
 	initializeClients bool,

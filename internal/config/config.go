@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Check   string  `yaml:"check"`
 	Summary Summary `yaml:"summary"`
+	UI      UI      `yaml:"ui"`
 	Twitch  Twitch  `yaml:"twitch"`
 	Kick    Kick    `yaml:"kick"`
 	Youtube Youtube `yaml:"youtube"`
@@ -18,6 +19,10 @@ type Config struct {
 type Summary struct {
 	Enable   bool   `yaml:"enable"`
 	Interval string `yaml:"interval"`
+}
+
+type UI struct {
+	ShowStreamers bool `yaml:"show_streamers"`
 }
 
 type Proxy struct {
@@ -84,6 +89,9 @@ func Default() *Config {
 		Summary: Summary{
 			Enable:   false,
 			Interval: "10m",
+		},
+		UI: UI{
+			ShowStreamers: true,
 		},
 	}
 }

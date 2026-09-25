@@ -69,7 +69,9 @@ func OpenTerminal(
 	return fmt.Errorf("no supported terminal emulator found")
 }
 
-func StartDetached() error {
+func StartDetached(
+	args ...string,
+) error {
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf(
@@ -86,7 +88,11 @@ func StartDetached() error {
 		)
 	}
 
-	cmd := exec.Command(exePath)
+	cmd := exec.Command(
+		exePath,
+		args...,
+	)
+
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true,
 	}

@@ -18,7 +18,7 @@ type workerSet struct {
 	done   chan struct{}
 }
 
-func buildApplications(
+func createApplications(
 	icon string,
 	logger *zap.Logger,
 	platforms []Platform,
@@ -127,7 +127,7 @@ func startWorkers(
 			group.Add(1)
 			go func() {
 				defer group.Done()
-				runSummaryWorker(
+				runSummaryLoop(
 					workerCtx,
 					logger,
 					summaryInterval,
@@ -143,7 +143,7 @@ func startWorkers(
 	return workers
 }
 
-func (w *workerSet) Stop() {
+func (w *workerSet) stopAndWait() {
 	if w == nil {
 		return
 	}

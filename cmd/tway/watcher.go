@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"tway/internal/config"
+	"tway/internal/tui"
 
 	"go.uber.org/zap"
 )
 
-func runConfigWatcher(
+func runConfigWatchLoop(
 	ctx context.Context,
 	logger *zap.Logger,
 	configPath string,
@@ -63,7 +64,7 @@ func runConfigWatcher(
 	}
 }
 
-func runConfigReloads(
+func runConfigReloadLoop(
 	ctx context.Context,
 	logger *zap.Logger,
 	configReloads <-chan *config.Config,
@@ -74,18 +75,29 @@ func runConfigReloads(
 		case <-ctx.Done():
 			return nil
 
-		case newConfig := <-configReloads:
+		case newConfig, ok := <-configReloads:
+			if !ok {
+				return nil
+			}
+
 			logger.Info("Config hot reload started...")
-			if err := reloader.Reload(newConfig); err != nil {
+			if err := reloader.reload(newConfig); err != nil {
 				logger.Error(
 					"Config hot reload failed",
 					zap.Error(err),
 				)
-
 				continue
 			}
 
 			logger.Info("Config hot reload complete!")
+			if newConfig.UI.ShowStreamers {
+				if err := tui.OpenTerminal("--tui"); err != nil {
+					logger.Error(
+						"Open streamers after config save",
+						zap.Error(err),
+					)
+				}
+			}
 		}
 	}
 }

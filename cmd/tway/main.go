@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"os"
 	"os/signal"
@@ -12,11 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"tway/internal/client"
 	"tway/internal/config"
 	"tway/internal/notifier"
 	"tway/internal/storage"
-	"tway/internal/tray"
 	"tway/internal/tui"
 
 	"go.uber.org/zap"
@@ -60,9 +57,16 @@ func main() {
 		"Open bootstrap configuration setup",
 	)
 
-	flag.Parse()
-	var logger *zap.Logger
+	afterSetupMode := flag.Bool(
+		"after-setup",
+		false,
+		"Run after setup save",
+	)
 
+	flag.Parse()
+	showStreamersAfterSetup := *afterSetupMode
+
+	var logger *zap.Logger
 	if *tuiMode || *setupMode || *bootstrapSetupMode {
 		logger = zap.NewNop()
 	} else {
@@ -103,68 +107,21 @@ func main() {
 	}
 
 	if firstRun || *setupMode || *bootstrapSetupMode {
-		if err := tui.AttachConsole(); err != nil {
-			if errors.Is(err, tui.ErrNoConsole) {
-				if *bootstrapSetupMode {
-					return
-				}
+		stop := runSetup(
+			logger,
+			firstRun,
+			setupMode,
+			configPath,
+			cfg,
+			bootstrapSetupMode,
+		)
 
-				mode := "--setup"
-				if firstRun && !*setupMode {
-					mode = "--bootstrap-setup"
-				}
-
-				if err := tui.OpenTerminal(mode); err != nil {
-					logger.Error(
-						"Open setup terminal",
-						zap.Error(err),
-					)
-				}
-				return
-			}
-
-			logger.Error(
-				"tui.AttachConsole",
-				zap.Error(err),
-			)
+		if stop {
 			return
 		}
 
-		ui := tui.NewTUI()
-		saved, err := ui.ShowSetup(cfg)
-		if err != nil {
-			logger.Error(
-				"Show setup",
-				zap.Error(err),
-			)
-			return
-		}
-
-		if !saved {
-			return
-		}
-
-		if err := config.SaveConfig(*configPath, cfg); err != nil {
-			logger.Error(
-				"config.SaveConfig",
-				zap.Error(err),
-			)
-			return
-		}
-
-		if *bootstrapSetupMode {
-			if err := tui.StartDetached(); err != nil {
-				logger.Error(
-					"Start tway after bootstrap",
-					zap.Error(err),
-				)
-				return
-			}
-			return
-		}
-
-		if *setupMode {
-			return
+		if firstRun {
+			showStreamersAfterSetup = true
 		}
 	}
 
@@ -178,6 +135,26 @@ func main() {
 		zap.Int("Youtube", len(cfg.Youtube.Channels)),
 		zap.Int("WTV", len(cfg.WTV.Channels)),
 	)
+
+	if !*tuiMode {
+		instanceLock, stop := acquireInstanceLock(
+			iconPath,
+			logger,
+		)
+
+		if stop {
+			return
+		}
+
+		defer func() {
+			if err := instanceLock.Close(); err != nil {
+				logger.Error(
+					"Release instance lock",
+					zap.Error(err),
+				)
+			}
+		}()
+	}
 
 	logger.Info("Initializing state storage...")
 	stateStorage, err := storage.NewStateStorage(
@@ -198,57 +175,16 @@ func main() {
 	logger.Info("State storage initialized!")
 
 	if *tuiMode {
-		platforms := buildPlatforms(
-			logger,
+		runStreamersTUI(
 			cfg,
-			false,
+			logger,
+			stateStorage,
 		)
-
-		if err := tui.AttachConsole(); err != nil {
-			logger.Error(
-				"main.AttachConsole",
-				zap.Error(err),
-			)
-			return
-		}
-
-		ui := tui.NewTUI()
-		if err := ui.ShowStreamers(
-			func() ([]*client.Stream, error) {
-				var streams []*client.Stream
-				for _, platform := range platforms {
-					for _, channel := range platform.Channels {
-						state, err := stateStorage.Get(platform.Name, channel)
-						if err != nil {
-							continue
-						}
-
-						if state == nil {
-							continue
-						}
-
-						streams = append(
-							streams,
-							&client.Stream{
-								Channel:      state.Channel,
-								IsLive:       state.IsLive,
-								LastStreamAt: state.LastStreamAt,
-								StartedAt:    state.StartedAt,
-								URL:          streamURL(state.Platform, state.Channel),
-							},
-						)
-					}
-				}
-				return streams, nil
-			},
-		); err != nil {
-			return
-		}
 		return
 	}
 
 	logger.Info("Initializing notifier service...")
-	notificationService, err := notifier.New(logger)
+	notificationService, err := notifier.NewNotifier(logger)
 	if err != nil {
 		logger.Error(
 			"Create notifier",
@@ -295,7 +231,7 @@ func main() {
 		notificationService,
 	)
 
-	if err := reloader.Start(cfg); err != nil {
+	if err := reloader.start(cfg); err != nil {
 		logger.Error(
 			"Start config reloader",
 			zap.Error(err),
@@ -304,6 +240,15 @@ func main() {
 	}
 
 	logger.Info("Config reloader started!")
+
+	if showStreamersAfterSetup && cfg.UI.ShowStreamers {
+		if err := tui.OpenTerminal("--tui"); err != nil {
+			logger.Error(
+				"Open streamers after setup",
+				zap.Error(err),
+			)
+		}
+	}
 
 	logger.Info("Creating config watcher...")
 	configChanges, configErrors := config.Watch(
@@ -315,7 +260,7 @@ func main() {
 	configReloads := make(chan *config.Config, 1)
 	group.Go(
 		func() error {
-			return runConfigWatcher(
+			return runConfigWatchLoop(
 				ctx,
 				logger,
 				*configPath,
@@ -328,7 +273,7 @@ func main() {
 
 	group.Go(
 		func() error {
-			return runConfigReloads(
+			return runConfigReloadLoop(
 				ctx,
 				logger,
 				configReloads,
@@ -339,9 +284,10 @@ func main() {
 
 	if err := notificationService.Send(
 		notifier.Notification{
-			Title:   "tway",
-			Message: "Initialization completed. All services are connected and stream monitoring is active.",
-			Icon:    *iconPath,
+			Title: "tway",
+			Message: "Initialization completed. " +
+				"All services are connected and stream monitoring is active.",
+			Icon: *iconPath,
 		},
 	); err != nil {
 		logger.Error(
@@ -354,97 +300,15 @@ func main() {
 	var refreshGroup sync.WaitGroup
 
 	logger.Info("Creating tray...")
-	trayApp := tray.NewTray(
+	trayApp := createTray(
+		iconPath,
 		logger,
-		func() {
-			if !refreshRunning.CompareAndSwap(false, true) {
-				logger.Info("Manual stream refresh is already running!")
-
-				if err := notificationService.Send(
-					notifier.Notification{
-						Title:   "tway",
-						Message: "Manual stream refresh is already running!",
-						Icon:    *iconPath,
-					},
-				); err != nil {
-					logger.Error(
-						"Failed to send refresh notification",
-						zap.Error(err),
-					)
-				}
-				return
-			}
-
-			refreshGroup.Add(1)
-			go func() {
-				defer refreshGroup.Done()
-				defer refreshRunning.Store(false)
-
-				logger.Info("Manual stream refresh requested...")
-
-				if err := notificationService.Send(
-					notifier.Notification{
-						Title:   "tway",
-						Message: "Processing streams status refresh started!",
-						Icon:    *iconPath,
-					},
-				); err != nil {
-					logger.Error(
-						"Failed to send refresh notification",
-						zap.Error(err),
-					)
-				}
-
-				reloader.WithCurrentPlatforms(
-					func(platforms []Platform) {
-						initializeStreamStates(
-							logger,
-							platforms,
-							stateStorage,
-						)
-					},
-				)
-
-				if err := notificationService.Send(
-					notifier.Notification{
-						Title:   "tway",
-						Message: "Streams status refreshed!",
-						Icon:    *iconPath,
-					},
-				); err != nil {
-					logger.Error(
-						"Failed to send refresh notification",
-						zap.Error(err),
-					)
-				}
-
-				logger.Info("Manual stream refresh completed!")
-			}()
-		},
-		func() {
-			logger.Info("Manual show streams summary requested!")
-			processOverall(
-				*iconPath,
-				logger,
-				stateStorage,
-				notificationService,
-			)
-
-			logger.Info("Manual show streams summary completed!")
-		},
-		func() {
-			logger.Info("Tray settings requested!")
-			if err := tui.OpenTerminal("--setup"); err != nil {
-				logger.Error(
-					"Open settings terminal",
-					zap.Error(err),
-				)
-			}
-		},
-		func() {
-			logger.Info("Tray exit event has requested!")
-			stop()
-		},
+		stop,
+		reloader,
+		&refreshRunning,
+		&refreshGroup,
+		stateStorage,
+		notificationService,
 	)
 
 	logger.Info("Tray created!")
@@ -458,7 +322,7 @@ func main() {
 		)
 	}
 
-	reloader.Stop()
+	reloader.stop()
 	refreshGroup.Wait()
 	logger.Info("Tway stopped!")
 }

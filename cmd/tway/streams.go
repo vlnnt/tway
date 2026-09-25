@@ -14,7 +14,7 @@ import (
 
 const streamInitConcurrency = 4
 
-func ensureStreamStates(
+func syncTrackedStreams(
 	logger *zap.Logger,
 	platforms []Platform,
 	stateStorage *storage.StateStorage,
@@ -54,7 +54,7 @@ func ensureStreamStates(
 	return nil
 }
 
-func runSummaryWorker(
+func runSummaryLoop(
 	ctx context.Context,
 	logger *zap.Logger,
 	interval time.Duration,
@@ -62,7 +62,7 @@ func runSummaryWorker(
 	notificationService notifier.Notifier,
 	icon string,
 ) {
-	processOverall(
+	sendStreamSummary(
 		icon,
 		logger,
 		state,
@@ -79,7 +79,7 @@ func runSummaryWorker(
 			return
 
 		case <-ticker.C:
-			processOverall(
+			sendStreamSummary(
 				icon,
 				logger,
 				state,
@@ -89,7 +89,7 @@ func runSummaryWorker(
 	}
 }
 
-func initializeStreamStates(
+func refreshStreamStates(
 	logger *zap.Logger,
 	platforms []Platform,
 	stateStorage *storage.StateStorage,
@@ -176,7 +176,7 @@ func initializeStreamStates(
 	logger.Info("Stream states initialized!")
 }
 
-func processOverall(
+func sendStreamSummary(
 	icon string,
 	logger *zap.Logger,
 	state *storage.StateStorage,

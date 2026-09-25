@@ -40,7 +40,8 @@ func (u *TUI) ShowSetup(
 			},
 		)
 
-		form.AddCheckbox(
+		addCheckbox(
+			form,
 			"Summary",
 			config.Summary.Enable,
 			func(checked bool) {
@@ -55,6 +56,15 @@ func (u *TUI) ShowSetup(
 			nil,
 			func(value string) {
 				config.Summary.Interval = strings.TrimSpace(value)
+			},
+		)
+
+		addCheckbox(
+			form,
+			"Show streamers after save",
+			config.UI.ShowStreamers,
+			func(checked bool) {
+				config.UI.ShowStreamers = checked
 			},
 		)
 
@@ -151,7 +161,8 @@ func (u *TUI) showPlatformSetup(
 		},
 	)
 
-	form.AddCheckbox(
+	addCheckbox(
+		form,
 		"Enable",
 		platform.Settings.Enable,
 		func(checked bool) {
@@ -478,6 +489,21 @@ func (u *TUI) showProxySetup(
 		),
 		true,
 	)
+}
+
+func addCheckbox(
+	form *tview.Form,
+	label string,
+	checked bool,
+	changed func(bool),
+) {
+	checkbox := tview.NewCheckbox().
+		SetLabel(label).
+		SetChecked(checked).
+		SetCheckedString(tview.Escape("[x]")).
+		SetUncheckedString(tview.Escape("[ ]")).
+		SetChangedFunc(changed)
+	form.AddFormItem(checkbox)
 }
 
 func setupPlatforms(

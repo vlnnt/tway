@@ -40,7 +40,9 @@ func OpenTerminal(
 	return nil
 }
 
-func StartDetached() error {
+func StartDetached(
+	args ...string,
+) error {
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf(
@@ -57,7 +59,11 @@ func StartDetached() error {
 		)
 	}
 
-	cmd := exec.Command(exePath)
+	cmd := exec.Command(
+		exePath,
+		args...,
+	)
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf(
 			"start detached tway: %w",

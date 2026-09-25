@@ -43,7 +43,7 @@ func NewConfigReloader(
 	}
 }
 
-func (cr *ConfigReloader) Start(
+func (cr *ConfigReloader) start(
 	cfg *config.Config,
 ) error {
 	cr.mu.RLock()
@@ -54,18 +54,18 @@ func (cr *ConfigReloader) Start(
 		return fmt.Errorf("config reloader already started")
 	}
 
-	checkInterval, summaryInterval, err := parseConfigIntervals(cfg)
+	checkInterval, summaryInterval, err := parseIntervals(cfg)
 	if err != nil {
 		return err
 	}
 
-	platforms := buildPlatforms(
+	platforms := platformsFromConfig(
 		cr.logger,
 		cfg,
 		true,
 	)
 
-	if err := ensureStreamStates(
+	if err := syncTrackedStreams(
 		cr.logger,
 		platforms,
 		cr.stateStorage,
@@ -73,13 +73,13 @@ func (cr *ConfigReloader) Start(
 		return err
 	}
 
-	initializeStreamStates(
+	refreshStreamStates(
 		cr.logger,
 		platforms,
 		cr.stateStorage,
 	)
 
-	applications := buildApplications(
+	applications := createApplications(
 		cr.icon,
 		cr.logger,
 		platforms,
@@ -136,21 +136,21 @@ func (cr *ConfigReloader) Start(
 	return nil
 }
 
-func (cr *ConfigReloader) Reload(
+func (cr *ConfigReloader) reload(
 	cfg *config.Config,
 ) error {
-	checkInterval, summaryInterval, err := parseConfigIntervals(cfg)
+	checkInterval, summaryInterval, err := parseIntervals(cfg)
 	if err != nil {
 		return err
 	}
 
-	platforms := buildPlatforms(
+	platforms := platformsFromConfig(
 		cr.logger,
 		cfg,
 		true,
 	)
 
-	applications := buildApplications(
+	applications := createApplications(
 		cr.icon,
 		cr.logger,
 		platforms,
@@ -172,11 +172,11 @@ func (cr *ConfigReloader) Reload(
 	oldSummaryInterval := cr.summaryInterval
 
 	cr.logger.Info("Stopping config workers...")
-	cr.workers.Stop()
+	cr.workers.stopAndWait()
 
 	cr.logger.Info("Config workers stopped!")
 
-	if err := ensureStreamStates(
+	if err := syncTrackedStreams(
 		cr.logger,
 		platforms,
 		cr.stateStorage,
@@ -201,7 +201,7 @@ func (cr *ConfigReloader) Reload(
 		return err
 	}
 
-	initializeStreamStates(
+	refreshStreamStates(
 		cr.logger,
 		platforms,
 		cr.stateStorage,
@@ -248,7 +248,7 @@ func (cr *ConfigReloader) Reload(
 	return nil
 }
 
-func (cr *ConfigReloader) WithCurrentPlatforms(
+func (cr *ConfigReloader) withPlatforms(
 	fn func([]Platform),
 ) {
 	cr.mu.RLock()
@@ -257,7 +257,7 @@ func (cr *ConfigReloader) WithCurrentPlatforms(
 	fn(cr.platforms)
 }
 
-func (cr *ConfigReloader) Stop() {
+func (cr *ConfigReloader) stop() {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
@@ -267,13 +267,13 @@ func (cr *ConfigReloader) Stop() {
 
 	cr.logger.Info("Stopping config reloader...")
 
-	cr.workers.Stop()
+	cr.workers.stopAndWait()
 	cr.workers = nil
 
 	cr.logger.Info("Config reloader stopped!")
 }
 
-func parseConfigIntervals(
+func parseIntervals(
 	cfg *config.Config,
 ) (time.Duration, time.Duration, error) {
 	checkInterval, err := time.ParseDuration(cfg.Check)
