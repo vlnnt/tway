@@ -14,6 +14,7 @@ import (
 
 func createTray(
 	iconPath *string,
+	logPath string,
 	logger *zap.Logger,
 	stop context.CancelFunc,
 	reloader *ConfigReloader,
@@ -105,6 +106,19 @@ func createTray(
 			if err := tui.OpenTerminal("--setup"); err != nil {
 				logger.Error(
 					"Open settings terminal",
+					zap.Error(err),
+				)
+			}
+		},
+		func() {
+			logger.Info(
+				"Open logs requested",
+				zap.String("Path", logPath),
+			)
+
+			if err := tui.OpenTerminal("--logs"); err != nil {
+				logger.Error(
+					"Open logs terminal",
 					zap.Error(err),
 				)
 			}

@@ -9,6 +9,7 @@ import (
 	"tway/internal/config"
 	"tway/internal/notifier"
 	"tway/internal/storage"
+	"tway/internal/tray"
 
 	"go.uber.org/zap"
 )
@@ -25,6 +26,7 @@ type ConfigReloader struct {
 	platforms           []Platform
 	applications        []*app.App
 	workers             *workerSet
+	fatalErrors         chan error
 }
 
 func NewConfigReloader(
@@ -40,6 +42,7 @@ func NewConfigReloader(
 		logger:              logger,
 		stateStorage:        stateStorage,
 		notificationService: notificationService,
+		fatalErrors:         make(chan error, 1),
 	}
 }
 
@@ -105,6 +108,7 @@ func (cr *ConfigReloader) start(
 		summaryInterval,
 		cr.stateStorage,
 		cr.notificationService,
+		cr.reportFatal,
 	)
 
 	cr.cfg = cfg
@@ -196,6 +200,7 @@ func (cr *ConfigReloader) reload(
 			oldSummaryInterval,
 			cr.stateStorage,
 			cr.notificationService,
+			cr.reportFatal,
 		)
 
 		return err
@@ -217,6 +222,7 @@ func (cr *ConfigReloader) reload(
 		summaryInterval,
 		cr.stateStorage,
 		cr.notificationService,
+		cr.reportFatal,
 	)
 
 	cr.cfg = cfg
@@ -271,6 +277,58 @@ func (cr *ConfigReloader) stop() {
 	cr.workers = nil
 
 	cr.logger.Info("Config reloader stopped!")
+}
+
+func (cr *ConfigReloader) runFatalHandler(
+	ctx context.Context,
+	logger *zap.Logger,
+	notificationService notifier.Notifier,
+	iconPath string,
+	stop context.CancelFunc,
+	trayApp *tray.Tray,
+) error {
+	select {
+	case <-ctx.Done():
+		return nil
+
+	case err := <-cr.fatal():
+		logger.Error(
+			"Monitoring stopped with fatal error",
+			zap.Error(err),
+		)
+
+		if notifyErr := notificationService.Send(
+			notifier.Notification{
+				Title: "tway",
+				Message: "Stream monitoring stopped due to a fatal error. " +
+					"Tway will be closed.",
+				Icon: iconPath,
+			},
+		); notifyErr != nil {
+			logger.Error(
+				"Send fatal monitoring notification",
+				zap.Error(notifyErr),
+			)
+		}
+	}
+
+	stop()
+	trayApp.Quit()
+
+	return nil
+}
+
+func (cr *ConfigReloader) reportFatal(
+	err error,
+) {
+	select {
+	case cr.fatalErrors <- err:
+	default:
+	}
+}
+
+func (cr *ConfigReloader) fatal() <-chan error {
+	return cr.fatalErrors
 }
 
 func parseIntervals(

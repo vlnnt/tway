@@ -50,5 +50,5 @@ func acquireInstanceLock(
 		return nil, true
 	}
 
-	return instanceLock, true
+	return instanceLock, false
 }

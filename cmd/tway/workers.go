@@ -90,6 +90,7 @@ func startWorkers(
 	summaryInterval time.Duration,
 	stateStorage *storage.StateStorage,
 	notificationService notifier.Notifier,
+	onFatal func(error),
 ) *workerSet {
 	workerCtx, cancel := context.WithCancel(parentCtx)
 	workers := &workerSet{
@@ -120,6 +121,10 @@ func startWorkers(
 					"Applications stopped with error",
 					zap.Error(err),
 				)
+
+				if onFatal != nil {
+					onFatal(err)
+				}
 			}
 		}()
 

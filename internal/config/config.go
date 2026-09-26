@@ -1,7 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v2"
 )
@@ -55,13 +58,16 @@ type WTV struct {
 func LoadConfig(
 	path string,
 ) (*Config, error) {
-	config, err := os.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	settings := &Config{}
-	if err := yaml.Unmarshal(config, settings); err != nil {
+	settings := Default()
+	if err := yaml.Unmarshal(
+		data,
+		settings,
+	); err != nil {
 		return nil, err
 	}
 
@@ -69,18 +75,103 @@ func LoadConfig(
 }
 
 func SaveConfig(
-	path string, config *Config,
+	path string,
+	config *Config,
 ) error {
-	data, err := yaml.Marshal(config)
-	if err != nil {
-		return err
+	var builder strings.Builder
+
+	fmt.Fprintf(
+		&builder,
+		"check: %s\n\n",
+		strconv.Quote(config.Check),
+	)
+
+	fmt.Fprintf(
+		&builder,
+		"summary:\n"+
+			"  enable: %t\n"+
+			"  interval: %s\n\n",
+		config.Summary.Enable,
+		strconv.Quote(config.Summary.Interval),
+	)
+
+	fmt.Fprintf(
+		&builder,
+		"ui:\n"+
+			"  show_streamers: %t\n\n",
+		config.UI.ShowStreamers,
+	)
+
+	writePlatform(
+		&builder,
+		"twitch",
+		&config.Twitch.Platform,
+	)
+
+	writePlatform(
+		&builder,
+		"kick",
+		&config.Kick.Platform,
+	)
+
+	writePlatform(
+		&builder,
+		"youtube",
+		&config.Youtube.Platform,
+	)
+
+	writePlatform(
+		&builder,
+		"wtv",
+		&config.WTV.Platform,
+	)
+
+	return os.WriteFile(
+		path,
+		[]byte(builder.String()),
+		0644,
+	)
+}
+
+func writePlatform(
+	builder *strings.Builder,
+	name string,
+	platform *Platform,
+) {
+	fmt.Fprintf(
+		builder,
+		"%s:\n"+
+			"  enable: %t\n"+
+			"  proxy:\n"+
+			"    http: %s\n"+
+			"    socks: %s\n",
+		name,
+		platform.Enable,
+		strconv.Quote(platform.Proxy.HTTP),
+		strconv.Quote(platform.Proxy.Socks),
+	)
+
+	if len(platform.Channels) == 0 {
+		builder.WriteString(
+			"  channels: []\n\n",
+		)
+
+		return
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return err
+	builder.WriteString(
+		"  channels:\n",
+	)
+
+	for _, channel := range platform.Channels {
+		fmt.Fprintf(
+			builder,
+			"    - %s\n",
+			strconv.Quote(channel),
+		)
 	}
 
-	return nil
+	builder.WriteString("\n")
 }
 
 func Default() *Config {

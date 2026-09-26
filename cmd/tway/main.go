@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"tway/internal/config"
+	"tway/internal/logging"
 	"tway/internal/notifier"
 	"tway/internal/storage"
 	"tway/internal/tui"
@@ -63,19 +64,49 @@ func main() {
 		"Run after setup save",
 	)
 
+	logsMode := flag.Bool(
+		"logs",
+		false,
+		"Show logs",
+	)
+
 	flag.Parse()
 	showStreamersAfterSetup := *afterSetupMode
 
-	var logger *zap.Logger
+	var (
+		logger  *zap.Logger
+		logPath string
+	)
+
+	if *logsMode {
+		logPath, err := logging.Path()
+		if err != nil {
+			return
+		}
+
+		if err := tui.RunLogs(logPath); err != nil {
+			return
+		}
+
+		return
+	}
+
 	if *tuiMode || *setupMode || *bootstrapSetupMode {
 		logger = zap.NewNop()
 	} else {
-		logger, err = zap.NewProduction()
+		logger, logPath, err = logging.New()
 		if err != nil {
 			return
 		}
 
 		defer logger.Sync()
+	}
+
+	if logPath != "" {
+		logger.Info(
+			"Logging initialized",
+			zap.String("Path", logPath),
+		)
 	}
 
 	logger.Info(
@@ -302,6 +333,7 @@ func main() {
 	logger.Info("Creating tray...")
 	trayApp := createTray(
 		iconPath,
+		logPath,
 		logger,
 		stop,
 		reloader,
@@ -312,9 +344,23 @@ func main() {
 	)
 
 	logger.Info("Tray created!")
-	trayApp.Run()
 
+	group.Go(
+		func() error {
+			return reloader.runFatalHandler(
+				ctx,
+				logger,
+				notificationService,
+				*iconPath,
+				stop,
+				trayApp,
+			)
+		},
+	)
+
+	trayApp.Run()
 	stop()
+
 	if err := group.Wait(); err != nil {
 		logger.Error(
 			"Config worker group stopped with error",

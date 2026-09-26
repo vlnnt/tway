@@ -16,6 +16,7 @@ type Tray struct {
 	onRefresh  func()
 	onSummary  func()
 	onSettings func()
+	onLogs     func()
 	onExit     func()
 }
 
@@ -24,6 +25,7 @@ func NewTray(
 	onRefresh func(),
 	onSummary func(),
 	onSettings func(),
+	onLogs func(),
 	onExit func(),
 ) *Tray {
 	return &Tray{
@@ -31,12 +33,17 @@ func NewTray(
 		onRefresh:  onRefresh,
 		onSummary:  onSummary,
 		onSettings: onSettings,
+		onLogs:     onLogs,
 		onExit:     onExit,
 	}
 }
 
 func (t *Tray) Run() {
 	systray.Run(t.onReady, t.onExitHandler)
+}
+
+func (t *Tray) Quit() {
+	systray.Quit()
 }
 
 func (t *Tray) showStreamers() {
@@ -66,6 +73,12 @@ func (t *Tray) showSettings() {
 	}
 }
 
+func (t *Tray) showLogs() {
+	if t.onLogs != nil {
+		t.onLogs()
+	}
+}
+
 func (t *Tray) onReady() {
 	systray.SetTitle("tway")
 	systray.SetTooltip("tway")
@@ -89,6 +102,11 @@ func (t *Tray) onReady() {
 	settings := systray.AddMenuItem(
 		"Settings",
 		"Open Tway settings",
+	)
+
+	logs := systray.AddMenuItem(
+		"Open Logs",
+		"Open Tway log file",
 	)
 
 	systray.AddSeparator()
@@ -141,10 +159,25 @@ func (t *Tray) onReady() {
 	}()
 
 	go func() {
+		for range logs.ClickedCh {
+			t.log.Info(
+				"Tray.showLogs",
+				zap.String(
+					"Clicked",
+					"Tray open logs requested",
+				),
+			)
+
+			t.showLogs()
+		}
+	}()
+
+	go func() {
 		<-exit.ClickedCh
 		t.log.Info("Tray.onReady",
 			zap.String("Clicked", "Tray exit requested"))
-		systray.Quit()
+
+		t.Quit()
 	}()
 }
 
