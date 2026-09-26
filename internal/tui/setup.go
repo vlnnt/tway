@@ -2,9 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
+	"time"
 	"tway/internal/config"
 
+	"github.com/atotto/clipboard"
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -34,7 +38,7 @@ func (u *TUI) ShowSetup(
 			"Check interval",
 			config.Check,
 			20,
-			nil,
+			intervalInputAccept,
 			func(value string) {
 				config.Check = strings.TrimSpace(value)
 			},
@@ -53,7 +57,7 @@ func (u *TUI) ShowSetup(
 			"Summary interval",
 			config.Summary.Interval,
 			20,
-			nil,
+			intervalInputAccept,
 			func(value string) {
 				config.Summary.Interval = strings.TrimSpace(value)
 			},
@@ -83,6 +87,32 @@ func (u *TUI) ShowSetup(
 		form.AddButton(
 			"Save",
 			func() {
+				if err := validateInterval(
+					config.Check, 10*time.Second,
+				); err != nil {
+					showInternalError(
+						u,
+						"Check interval",
+						err,
+						showMainSetup,
+					)
+					return
+				}
+
+				if config.Summary.Enable {
+					if err := validateInterval(
+						config.Summary.Interval, time.Minute,
+					); err != nil {
+						showInternalError(
+							u,
+							"Summary interval",
+							err,
+							showMainSetup,
+						)
+						return
+					}
+				}
+
 				saved = true
 				u.application.Stop()
 			},
@@ -221,6 +251,46 @@ func (u *TUI) showPlatformSetup(
 	form.AddButton(
 		"Save",
 		func() {
+			if err := validateInterval(
+				config.Check, 10*time.Second,
+			); err != nil {
+				showInternalError(
+					u,
+					"Check interval",
+					err,
+					func() {
+						u.showPlatformSetup(
+							config,
+							saved,
+							showMainSetup,
+							activePlatform,
+						)
+					},
+				)
+				return
+			}
+
+			if config.Summary.Enable {
+				if err := validateInterval(
+					config.Summary.Interval, time.Minute,
+				); err != nil {
+					showInternalError(
+						u,
+						"Summary interval",
+						err,
+						func() {
+							u.showPlatformSetup(
+								config,
+								saved,
+								showMainSetup,
+								activePlatform,
+							)
+						},
+					)
+					return
+				}
+			}
+
 			*saved = true
 			u.application.Stop()
 		},
@@ -371,19 +441,39 @@ func (u *TUI) showAddChannelSetup(
 ) {
 	form := tview.NewForm()
 	channel := ""
-	form.AddInputField(
-		"Channel",
-		"",
-		50,
-		nil,
+	channelInput := tview.NewInputField()
+	channelInput.SetLabel("Channel")
+	channelInput.SetFieldWidth(50)
+	channelInput.SetChangedFunc(
 		func(value string) {
 			channel = strings.TrimSpace(value)
 		},
 	)
 
+	channelInput.SetInputCapture(
+		func(event *tcell.EventKey) *tcell.EventKey {
+			if event.Key() != tcell.KeyCtrlV {
+				return event
+			}
+
+			value, err := clipboard.ReadAll()
+			if err != nil {
+				return nil
+			}
+
+			value = normalizeChannelInput(platformName, value)
+			channelInput.SetText(value)
+			channel = value
+
+			return nil
+		},
+	)
+
+	form.AddFormItem(channelInput)
 	form.AddButton(
 		"Add",
 		func() {
+			channel = normalizeChannelInput(platformName, channel)
 			if channel == "" {
 				return
 			}
@@ -434,25 +524,68 @@ func (u *TUI) showProxySetup(
 	back func(),
 ) {
 	form := tview.NewForm()
-	form.AddInputField(
-		"HTTP Proxy",
-		proxy.HTTP,
-		50,
-		nil,
+
+	httpProxyInput := tview.NewInputField()
+	httpProxyInput.SetLabel("HTTP Proxy")
+	httpProxyInput.SetFieldWidth(50)
+	httpProxyInput.SetText(proxy.HTTP)
+
+	httpProxyInput.SetChangedFunc(
 		func(value string) {
 			proxy.HTTP = strings.TrimSpace(value)
 		},
 	)
 
-	form.AddInputField(
-		"SOCKS Proxy",
-		proxy.Socks,
-		50,
-		nil,
+	httpProxyInput.SetInputCapture(
+		func(event *tcell.EventKey) *tcell.EventKey {
+			if event.Key() != tcell.KeyCtrlV {
+				return event
+			}
+
+			value, err := clipboard.ReadAll()
+			if err != nil {
+				return nil
+			}
+
+			value = strings.TrimSpace(value)
+			httpProxyInput.SetText(value)
+
+			return nil
+		},
+	)
+
+	form.AddFormItem(httpProxyInput)
+
+	socksProxyInput := tview.NewInputField()
+	socksProxyInput.SetLabel("SOCKS Proxy")
+	socksProxyInput.SetFieldWidth(50)
+	socksProxyInput.SetText(proxy.Socks)
+
+	socksProxyInput.SetChangedFunc(
 		func(value string) {
 			proxy.Socks = strings.TrimSpace(value)
 		},
 	)
+
+	socksProxyInput.SetInputCapture(
+		func(event *tcell.EventKey) *tcell.EventKey {
+			if event.Key() != tcell.KeyCtrlV {
+				return event
+			}
+
+			value, err := clipboard.ReadAll()
+			if err != nil {
+				return nil
+			}
+
+			value = strings.TrimSpace(value)
+			socksProxyInput.SetText(value)
+
+			return nil
+		},
+	)
+
+	form.AddFormItem(socksProxyInput)
 
 	form.AddButton(
 		"Clear Proxy",
@@ -504,6 +637,172 @@ func addCheckbox(
 		SetUncheckedString(tview.Escape("[ ]")).
 		SetChangedFunc(changed)
 	form.AddFormItem(checkbox)
+}
+
+func normalizeChannelInput(
+	platformName, value string,
+) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	rawURL := value
+	if !strings.Contains(rawURL, "://") {
+		switch {
+		case strings.Contains(rawURL, "twitch.tv/"),
+			strings.Contains(rawURL, "kick.com/"),
+			strings.Contains(rawURL, "youtube.com/"),
+			strings.Contains(rawURL, "youtu.be/"),
+			strings.Contains(rawURL, "w.tv/"):
+			rawURL = "https://" + rawURL
+
+		default:
+			return value
+		}
+	}
+
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return value
+	}
+
+	host := strings.ToLower(
+		strings.TrimPrefix(
+			parsedURL.Hostname(),
+			"www.",
+		),
+	)
+
+	path := strings.Trim(parsedURL.Path, "/")
+	if path == "" {
+		return value
+	}
+
+	parts := strings.Split(path, "/")
+	switch strings.ToLower(platformName) {
+	case "twitch":
+		if host != "twitch.tv" {
+			return value
+		}
+
+		return parts[0]
+
+	case "kick":
+		if host != "kick.com" {
+			return value
+		}
+
+		return parts[0]
+
+	case "youtube":
+		if host != "youtube.com" &&
+			host != "m.youtube.com" {
+			return value
+		}
+
+		if strings.HasPrefix(parts[0], "@") {
+			return parts[0]
+		}
+
+		if len(parts) >= 2 {
+			switch parts[0] {
+			case "channel", "c", "user":
+				return parts[1]
+			}
+		}
+
+		return value
+
+	case "w.tv":
+		if host != "w.tv" {
+			return value
+		}
+
+		return parts[0]
+	}
+
+	return value
+}
+
+func validateInterval(
+	value string,
+	min time.Duration,
+) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fmt.Errorf("interval cannot be empty")
+	}
+
+	interval, err := time.ParseDuration(value)
+	if err != nil {
+		return fmt.Errorf(
+			"invalid interval: use values like 30s, 2m or 1h",
+		)
+	}
+
+	if interval <= 0 {
+		return fmt.Errorf(
+			"interval must be greater than 0",
+		)
+	}
+
+	if interval < min {
+		return fmt.Errorf(
+			"interval must be at least %s",
+			min,
+		)
+	}
+
+	return nil
+}
+
+func intervalInputAccept(
+	text string,
+	lastChar rune,
+) bool {
+	if lastChar == 0 {
+		return true
+	}
+
+	switch {
+	case lastChar >= '0' && lastChar <= '9':
+		return true
+
+	case lastChar == '.':
+		return true
+
+	case lastChar == 'h',
+		lastChar == 'm',
+		lastChar == 's':
+		return true
+	}
+
+	return false
+}
+
+func showInternalError(
+	u *TUI,
+	name string,
+	err error,
+	back func(),
+) {
+	modal := tview.NewModal().
+		SetText(
+			fmt.Sprintf(
+				"%s:\n\n%s",
+				name,
+				err,
+			),
+		).
+		AddButtons([]string{"OK"}).
+		SetDoneFunc(
+			func(buttonIndex int, buttonLabel string) {
+				back()
+			},
+		)
+
+	u.application.SetRoot(modal, true)
 }
 
 func setupPlatforms(
