@@ -1,3 +1,5 @@
+language: "en"
+
 check: "2m"
 
 summary:
@@ -6,6 +8,9 @@ summary:
   
 ui:
   show_streamers: true
+
+logs:
+  interval: "10s"
 
 twitch:
   enable: true

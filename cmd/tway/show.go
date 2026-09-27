@@ -4,6 +4,7 @@ import (
 	"errors"
 	"tway/internal/client"
 	"tway/internal/config"
+	"tway/internal/i18n"
 	"tway/internal/storage"
 	"tway/internal/tui"
 
@@ -15,11 +16,46 @@ func runStreamersTUI(
 	logger *zap.Logger,
 	stateStorage *storage.StateStorage,
 ) {
+	texts := i18n.Get(cfg.Language)
 	platforms := platformsFromConfig(
 		logger,
 		cfg,
 		false,
 	)
+
+	platformNames := make(
+		[]string,
+		0,
+		len(platforms),
+	)
+
+	for _, platform := range platforms {
+		switch platform.Name {
+		case "twitch":
+			platformNames = append(
+				platformNames,
+				"Twitch",
+			)
+
+		case "kick":
+			platformNames = append(
+				platformNames,
+				"Kick",
+			)
+
+		case "youtube":
+			platformNames = append(
+				platformNames,
+				"YouTube",
+			)
+
+		case "wtv":
+			platformNames = append(
+				platformNames,
+				"W.TV",
+			)
+		}
+	}
 
 	if err := tui.AttachConsole(); err != nil {
 		if errors.Is(err, tui.ErrNoConsole) {
@@ -61,15 +97,19 @@ func runStreamersTUI(
 							IsLive:       state.IsLive,
 							LastStreamAt: state.LastStreamAt,
 							StartedAt:    state.StartedAt,
-							URL:          streamURL(state.Platform, state.Channel),
+							URL: streamURL(
+								state.Platform,
+								state.Channel,
+							),
 						},
 					)
 				}
 			}
 			return streams, nil
 		},
+		platformNames,
+		texts,
 	); err != nil {
 		return
 	}
-	return
 }

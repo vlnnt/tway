@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 	"tway/internal/config"
+	"tway/internal/i18n"
 
 	"github.com/atotto/clipboard"
 	"github.com/gdamore/tcell/v2"
@@ -14,7 +15,7 @@ import (
 
 const (
 	setupViewWidth          = 70
-	setupViewHeight         = 16
+	setupViewHeight         = 17
 	platformSetupViewHeight = 18
 	channelsSetupViewHeight = 12
 	proxySetupViewHeight    = 14
@@ -33,9 +34,40 @@ func (u *TUI) ShowSetup(
 
 	var showMainSetup func()
 	showMainSetup = func() {
+		texts := i18n.Get(config.Language)
 		form := tview.NewForm()
+
+		languageIndex := 0
+		if config.Language == i18n.Russian {
+			languageIndex = 1
+		}
+
+		form.AddDropDown(
+			texts.Language,
+			[]string{
+				"English",
+				"Русский",
+			},
+			languageIndex,
+			func(
+				_ string, index int,
+			) {
+				language := i18n.English
+				if index == 1 {
+					language = i18n.Russian
+				}
+
+				if config.Language == language {
+					return
+				}
+
+				config.Language = language
+				showMainSetup()
+			},
+		)
+
 		form.AddInputField(
-			"Check interval",
+			texts.CheckInterval,
 			config.Check,
 			20,
 			intervalInputAccept,
@@ -46,7 +78,7 @@ func (u *TUI) ShowSetup(
 
 		addCheckbox(
 			form,
-			"Summary",
+			texts.Summary,
 			config.Summary.Enable,
 			func(checked bool) {
 				config.Summary.Enable = checked
@@ -54,7 +86,7 @@ func (u *TUI) ShowSetup(
 		)
 
 		form.AddInputField(
-			"Summary interval",
+			texts.SummaryInterval,
 			config.Summary.Interval,
 			20,
 			intervalInputAccept,
@@ -65,7 +97,7 @@ func (u *TUI) ShowSetup(
 
 		addCheckbox(
 			form,
-			"Show streamers after save",
+			texts.ShowStreamersAfterSave,
 			config.UI.ShowStreamers,
 			func(checked bool) {
 				config.UI.ShowStreamers = checked
@@ -73,41 +105,48 @@ func (u *TUI) ShowSetup(
 		)
 
 		form.AddButton(
-			"Platforms",
+			texts.Platforms,
 			func() {
 				u.showPlatformSetup(
 					config,
 					&saved,
 					showMainSetup,
 					0,
+					texts,
 				)
 			},
 		)
 
 		form.AddButton(
-			"Save",
+			texts.Save,
 			func() {
 				if err := validateInterval(
-					config.Check, 10*time.Second,
+					config.Check,
+					10*time.Second,
+					texts,
 				); err != nil {
 					showInternalError(
 						u,
-						"Check interval",
+						texts.CheckInterval,
 						err,
 						showMainSetup,
+						texts,
 					)
 					return
 				}
 
 				if config.Summary.Enable {
 					if err := validateInterval(
-						config.Summary.Interval, time.Minute,
+						config.Summary.Interval,
+						time.Second*10,
+						texts,
 					); err != nil {
 						showInternalError(
 							u,
-							"Summary interval",
+							texts.SummaryInterval,
 							err,
 							showMainSetup,
+							texts,
 						)
 						return
 					}
@@ -119,14 +158,19 @@ func (u *TUI) ShowSetup(
 		)
 
 		form.AddButton(
-			"Cancel",
+			texts.Cancel,
 			func() {
 				u.application.Stop()
 			},
 		)
 
 		form.SetBorder(true).
-			SetTitle(" Tway Configuration ").
+			SetTitle(
+				fmt.Sprintf(
+					" %s ",
+					texts.SetupTitle,
+				),
+			).
 			SetTitleAlign(tview.AlignCenter)
 
 		u.application.SetRoot(
@@ -136,6 +180,24 @@ func (u *TUI) ShowSetup(
 				setupViewHeight,
 			),
 			true,
+		)
+
+		form.SetInputCapture(
+			func(event *tcell.EventKey) *tcell.EventKey {
+				switch event.Key() {
+				case tcell.KeyEscape:
+					u.application.Stop()
+					return nil
+				}
+
+				switch event.Rune() {
+				case 'q', 'Q', 'й', 'Й':
+					u.application.Stop()
+					return nil
+				}
+
+				return event
+			},
 		)
 	}
 
@@ -152,6 +214,7 @@ func (u *TUI) showPlatformSetup(
 	saved *bool,
 	showMainSetup func(),
 	activePlatform int,
+	texts i18n.Texts,
 ) {
 	platforms := setupPlatforms(config)
 	if activePlatform < 0 || activePlatform >= len(platforms) {
@@ -172,7 +235,7 @@ func (u *TUI) showPlatformSetup(
 	}
 
 	form.AddDropDown(
-		"Platform",
+		texts.Platform,
 		names,
 		activePlatform,
 		func(
@@ -187,13 +250,14 @@ func (u *TUI) showPlatformSetup(
 				saved,
 				showMainSetup,
 				index,
+				texts,
 			)
 		},
 	)
 
 	addCheckbox(
 		form,
-		"Enable",
+		texts.Enable,
 		platform.Settings.Enable,
 		func(checked bool) {
 			platform.Settings.Enable = checked
@@ -202,7 +266,8 @@ func (u *TUI) showPlatformSetup(
 
 	form.AddButton(
 		fmt.Sprintf(
-			"Channels (%d)",
+			"%s (%d)",
+			texts.Channels,
 			len(platform.Settings.Channels),
 		),
 		func() {
@@ -216,14 +281,19 @@ func (u *TUI) showPlatformSetup(
 						saved,
 						showMainSetup,
 						currentPlatform,
+						texts,
 					)
 				},
+				texts,
 			)
 		},
 	)
 
 	form.AddButton(
-		proxyButtonLabel(platform.Settings.Proxy),
+		proxyButtonLabel(
+			platform.Settings.Proxy,
+			texts,
+		),
 		func() {
 			currentPlatform := activePlatform
 			u.showProxySetup(
@@ -235,28 +305,32 @@ func (u *TUI) showPlatformSetup(
 						saved,
 						showMainSetup,
 						currentPlatform,
+						texts,
 					)
 				},
+				texts,
 			)
 		},
 	)
 
 	form.AddButton(
-		"Back",
+		texts.Back,
 		func() {
 			showMainSetup()
 		},
 	)
 
 	form.AddButton(
-		"Save",
+		texts.Save,
 		func() {
 			if err := validateInterval(
-				config.Check, 10*time.Second,
+				config.Check,
+				10*time.Second,
+				texts,
 			); err != nil {
 				showInternalError(
 					u,
-					"Check interval",
+					texts.CheckInterval,
 					err,
 					func() {
 						u.showPlatformSetup(
@@ -264,19 +338,23 @@ func (u *TUI) showPlatformSetup(
 							saved,
 							showMainSetup,
 							activePlatform,
+							texts,
 						)
 					},
+					texts,
 				)
 				return
 			}
 
 			if config.Summary.Enable {
 				if err := validateInterval(
-					config.Summary.Interval, time.Minute,
+					config.Summary.Interval,
+					time.Minute,
+					texts,
 				); err != nil {
 					showInternalError(
 						u,
-						"Summary interval",
+						texts.SummaryInterval,
 						err,
 						func() {
 							u.showPlatformSetup(
@@ -284,8 +362,10 @@ func (u *TUI) showPlatformSetup(
 								saved,
 								showMainSetup,
 								activePlatform,
+								texts,
 							)
 						},
+						texts,
 					)
 					return
 				}
@@ -297,7 +377,12 @@ func (u *TUI) showPlatformSetup(
 	)
 
 	form.SetBorder(true).
-		SetTitle(" Platforms ").
+		SetTitle(
+			fmt.Sprintf(
+				" %s ",
+				texts.Platforms,
+			),
+		).
 		SetTitleAlign(tview.AlignCenter)
 
 	u.application.SetRoot(
@@ -314,12 +399,14 @@ func (u *TUI) showChannelsSetup(
 	platformName string,
 	platform *config.Platform,
 	back func(),
+	texts i18n.Texts,
 ) {
 	u.showChannelsSetupAt(
 		platformName,
 		platform,
 		back,
 		0,
+		texts,
 	)
 }
 
@@ -328,6 +415,7 @@ func (u *TUI) showChannelsSetupAt(
 	platform *config.Platform,
 	back func(),
 	selectedChannel int,
+	texts i18n.Texts,
 ) {
 	form := tview.NewForm()
 	if len(platform.Channels) > 0 {
@@ -340,7 +428,7 @@ func (u *TUI) showChannelsSetupAt(
 		}
 
 		form.AddDropDown(
-			"Channel",
+			texts.Channel,
 			platform.Channels,
 			selectedChannel,
 			func(
@@ -353,8 +441,8 @@ func (u *TUI) showChannelsSetupAt(
 
 	} else {
 		form.AddTextView(
-			"Channels",
-			"No channels added",
+			texts.Channel,
+			texts.NoChannelsAdded,
 			40,
 			1,
 			false,
@@ -363,7 +451,7 @@ func (u *TUI) showChannelsSetupAt(
 	}
 
 	form.AddButton(
-		"Add Channel",
+		texts.AddChannel,
 		func() {
 			u.showAddChannelSetup(
 				platformName,
@@ -375,14 +463,16 @@ func (u *TUI) showChannelsSetupAt(
 						platform,
 						back,
 						selected,
+						texts,
 					)
 				},
+				texts,
 			)
 		},
 	)
 
 	form.AddButton(
-		"Remove Channel",
+		texts.RemoveChannel,
 		func() {
 			if len(platform.Channels) == 0 {
 				return
@@ -406,20 +496,24 @@ func (u *TUI) showChannelsSetupAt(
 				platform,
 				back,
 				selectedChannel,
+				texts,
 			)
 		},
 	)
 
 	form.AddButton(
-		"Back",
+		texts.Back,
 		back,
 	)
 
 	form.SetBorder(true).
 		SetTitle(
 			fmt.Sprintf(
-				" %s Channels ",
-				platformName,
+				" %s ",
+				fmt.Sprintf(
+					texts.PlatformChannels,
+					platformName,
+				),
 			),
 		).
 		SetTitleAlign(tview.AlignCenter)
@@ -438,11 +532,14 @@ func (u *TUI) showAddChannelSetup(
 	platformName string,
 	platform *config.Platform,
 	back func(),
+	texts i18n.Texts,
 ) {
 	form := tview.NewForm()
 	channel := ""
+
 	channelInput := tview.NewInputField()
-	channelInput.SetLabel("Channel")
+
+	channelInput.SetLabel(texts.Channel)
 	channelInput.SetFieldWidth(50)
 	channelInput.SetChangedFunc(
 		func(value string) {
@@ -471,7 +568,7 @@ func (u *TUI) showAddChannelSetup(
 
 	form.AddFormItem(channelInput)
 	form.AddButton(
-		"Add",
+		texts.Add,
 		func() {
 			channel = normalizeChannelInput(platformName, channel)
 			if channel == "" {
@@ -495,15 +592,18 @@ func (u *TUI) showAddChannelSetup(
 	)
 
 	form.AddButton(
-		"Cancel",
+		texts.Cancel,
 		back,
 	)
 
 	form.SetBorder(true).
 		SetTitle(
 			fmt.Sprintf(
-				" Add %s Channel ",
-				platformName,
+				" %s ",
+				fmt.Sprintf(
+					texts.AddPlatformChannel,
+					platformName,
+				),
 			),
 		).
 		SetTitleAlign(tview.AlignCenter)
@@ -522,11 +622,12 @@ func (u *TUI) showProxySetup(
 	platformName string,
 	proxy *config.Proxy,
 	back func(),
+	texts i18n.Texts,
 ) {
 	form := tview.NewForm()
 
 	httpProxyInput := tview.NewInputField()
-	httpProxyInput.SetLabel("HTTP Proxy")
+	httpProxyInput.SetLabel(texts.HTTPProxy)
 	httpProxyInput.SetFieldWidth(50)
 	httpProxyInput.SetText(proxy.HTTP)
 
@@ -557,7 +658,7 @@ func (u *TUI) showProxySetup(
 	form.AddFormItem(httpProxyInput)
 
 	socksProxyInput := tview.NewInputField()
-	socksProxyInput.SetLabel("SOCKS Proxy")
+	socksProxyInput.SetLabel(texts.SocksProxy)
 	socksProxyInput.SetFieldWidth(50)
 	socksProxyInput.SetText(proxy.Socks)
 
@@ -588,28 +689,33 @@ func (u *TUI) showProxySetup(
 	form.AddFormItem(socksProxyInput)
 
 	form.AddButton(
-		"Clear Proxy",
+		texts.ClearProxy,
 		func() {
 			proxy.HTTP = ""
 			proxy.Socks = ""
+
 			u.showProxySetup(
 				platformName,
 				proxy,
 				back,
+				texts,
 			)
 		},
 	)
 
 	form.AddButton(
-		"Back",
+		texts.Back,
 		back,
 	)
 
 	form.SetBorder(true).
 		SetTitle(
 			fmt.Sprintf(
-				" %s Proxy ",
-				platformName,
+				" %s ",
+				fmt.Sprintf(
+					texts.PlatformProxy,
+					platformName,
+				),
 			),
 		).
 		SetTitleAlign(tview.AlignCenter)
@@ -728,30 +834,24 @@ func normalizeChannelInput(
 func validateInterval(
 	value string,
 	min time.Duration,
+	texts i18n.Texts,
 ) error {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return fmt.Errorf("interval cannot be empty")
+		return fmt.Errorf("%s", texts.IntervalCannotBeEmpty)
 	}
 
 	interval, err := time.ParseDuration(value)
 	if err != nil {
-		return fmt.Errorf(
-			"invalid interval: use values like 30s, 2m or 1h",
-		)
+		return fmt.Errorf("%s", texts.InvalidInterval)
 	}
 
 	if interval <= 0 {
-		return fmt.Errorf(
-			"interval must be greater than 0",
-		)
+		return fmt.Errorf("%s", texts.IntervalMustBeGreaterThanZero)
 	}
 
 	if interval < min {
-		return fmt.Errorf(
-			"interval must be at least %s",
-			min,
-		)
+		return fmt.Errorf(texts.IntervalMustBeAtLeast, min)
 	}
 
 	return nil
@@ -786,6 +886,7 @@ func showInternalError(
 	name string,
 	err error,
 	back func(),
+	texts i18n.Texts,
 ) {
 	modal := tview.NewModal().
 		SetText(
@@ -795,7 +896,7 @@ func showInternalError(
 				err,
 			),
 		).
-		AddButtons([]string{"OK"}).
+		AddButtons([]string{texts.OK}).
 		SetDoneFunc(
 			func(buttonIndex int, buttonLabel string) {
 				back()
@@ -830,13 +931,14 @@ func setupPlatforms(
 
 func proxyButtonLabel(
 	proxy config.Proxy,
+	texts i18n.Texts,
 ) string {
 	if strings.TrimSpace(proxy.HTTP) == "" &&
 		strings.TrimSpace(proxy.Socks) == "" {
-		return "Add Proxy"
+		return texts.AddProxy
 	}
 
-	return "Edit Proxy"
+	return texts.EditProxy
 }
 
 func channelExists(

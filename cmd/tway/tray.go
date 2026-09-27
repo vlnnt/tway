@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+	"tway/internal/config"
+	"tway/internal/i18n"
 	"tway/internal/notifier"
 	"tway/internal/storage"
 	"tway/internal/tray"
@@ -15,6 +17,7 @@ import (
 func createTray(
 	iconPath *string,
 	logPath string,
+	cfg *config.Config,
 	logger *zap.Logger,
 	stop context.CancelFunc,
 	reloader *ConfigReloader,
@@ -25,6 +28,7 @@ func createTray(
 ) *tray.Tray {
 	trayApp := tray.NewTray(
 		logger,
+		i18n.Get(cfg.Language),
 		func() {
 			if !refreshRunning.CompareAndSwap(false, true) {
 				logger.Info("Manual stream refresh is already running!")

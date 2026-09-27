@@ -10,13 +10,15 @@ import (
 )
 
 type Config struct {
-	Check   string  `yaml:"check"`
-	Summary Summary `yaml:"summary"`
-	UI      UI      `yaml:"ui"`
-	Twitch  Twitch  `yaml:"twitch"`
-	Kick    Kick    `yaml:"kick"`
-	Youtube Youtube `yaml:"youtube"`
-	WTV     WTV     `yaml:"wtv"`
+	Language string  `yaml:"language"`
+	Check    string  `yaml:"check"`
+	Summary  Summary `yaml:"summary"`
+	UI       UI      `yaml:"ui"`
+	Logs     Logs    `yaml:"logs"`
+	Twitch   Twitch  `yaml:"twitch"`
+	Kick     Kick    `yaml:"kick"`
+	Youtube  Youtube `yaml:"youtube"`
+	WTV      WTV     `yaml:"wtv"`
 }
 
 type Summary struct {
@@ -26,6 +28,10 @@ type Summary struct {
 
 type UI struct {
 	ShowStreamers bool `yaml:"show_streamers"`
+}
+
+type Logs struct {
+	Interval string `yaml:"interval"`
 }
 
 type Proxy struct {
@@ -82,6 +88,12 @@ func SaveConfig(
 
 	fmt.Fprintf(
 		&builder,
+		"language: %s\n\n",
+		strconv.Quote(config.Language),
+	)
+
+	fmt.Fprintf(
+		&builder,
 		"check: %s\n\n",
 		strconv.Quote(config.Check),
 	)
@@ -100,6 +112,13 @@ func SaveConfig(
 		"ui:\n"+
 			"  show_streamers: %t\n\n",
 		config.UI.ShowStreamers,
+	)
+
+	fmt.Fprintf(
+		&builder,
+		"logs:\n"+
+			"  interval: %s\n\n",
+		strconv.Quote(config.Logs.Interval),
 	)
 
 	writePlatform(
@@ -176,13 +195,17 @@ func writePlatform(
 
 func Default() *Config {
 	return &Config{
-		Check: "2m",
+		Language: "en",
+		Check:    "2m",
 		Summary: Summary{
 			Enable:   false,
 			Interval: "10m",
 		},
 		UI: UI{
 			ShowStreamers: true,
+		},
+		Logs: Logs{
+			Interval: "1s",
 		},
 	}
 }

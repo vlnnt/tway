@@ -2,6 +2,8 @@ package tray
 
 import (
 	_ "embed"
+	"sync"
+	"tway/internal/i18n"
 	"tway/internal/tui"
 
 	"github.com/getlantern/systray"
@@ -18,10 +20,21 @@ type Tray struct {
 	onSettings func()
 	onLogs     func()
 	onExit     func()
+
+	mu    sync.RWMutex
+	texts i18n.Texts
+
+	showItem     *systray.MenuItem
+	summaryItem  *systray.MenuItem
+	refreshItem  *systray.MenuItem
+	settingsItem *systray.MenuItem
+	logsItem     *systray.MenuItem
+	exitItem     *systray.MenuItem
 }
 
 func NewTray(
 	log *zap.Logger,
+	texts i18n.Texts,
 	onRefresh func(),
 	onSummary func(),
 	onSettings func(),
@@ -30,6 +43,7 @@ func NewTray(
 ) *Tray {
 	return &Tray{
 		log:        log,
+		texts:      texts,
 		onRefresh:  onRefresh,
 		onSummary:  onSummary,
 		onSettings: onSettings,
@@ -44,6 +58,47 @@ func (t *Tray) Run() {
 
 func (t *Tray) Quit() {
 	systray.Quit()
+}
+
+func (t *Tray) SetTexts(
+	texts i18n.Texts,
+) {
+	t.mu.Lock()
+
+	t.texts = texts
+
+	show := t.showItem
+	summary := t.summaryItem
+	refresh := t.refreshItem
+	settings := t.settingsItem
+	logs := t.logsItem
+	exit := t.exitItem
+
+	t.mu.Unlock()
+
+	if show != nil {
+		show.SetTitle(texts.Show)
+	}
+
+	if summary != nil {
+		summary.SetTitle(texts.Summary)
+	}
+
+	if refresh != nil {
+		refresh.SetTitle(texts.Refresh)
+	}
+
+	if settings != nil {
+		settings.SetTitle(texts.Settings)
+	}
+
+	if logs != nil {
+		logs.SetTitle(texts.OpenLogs)
+	}
+
+	if exit != nil {
+		exit.SetTitle(texts.Exit)
+	}
 }
 
 func (t *Tray) showStreamers() {
@@ -84,36 +139,51 @@ func (t *Tray) onReady() {
 	systray.SetTooltip("tway")
 	systray.SetIcon(icon)
 
+	t.mu.RLock()
+	texts := t.texts
+	t.mu.RUnlock()
+
 	show := systray.AddMenuItem(
-		"Show",
-		"Show streamers status",
+		texts.Show,
+		texts.ShowStreamersStatus,
 	)
 
 	summary := systray.AddMenuItem(
-		"Summary",
-		"Show streams summary",
+		texts.Summary,
+		texts.ShowStreamsSummary,
 	)
 
 	refresh := systray.AddMenuItem(
-		"Refresh",
-		"Refresh streams status",
+		texts.Refresh,
+		texts.RefreshStreamsStatus,
 	)
 
 	settings := systray.AddMenuItem(
-		"Settings",
-		"Open Tway settings",
+		texts.Settings,
+		texts.OpenTwaySettings,
 	)
 
 	logs := systray.AddMenuItem(
-		"Open Logs",
-		"Open Tway log file",
+		texts.OpenLogs,
+		texts.OpenTwayLogFile,
 	)
 
 	systray.AddSeparator()
 	exit := systray.AddMenuItem(
-		"Exit",
-		"Exit application",
+		texts.Exit,
+		texts.ExitApplication,
 	)
+
+	t.mu.Lock()
+
+	t.showItem = show
+	t.summaryItem = summary
+	t.refreshItem = refresh
+	t.settingsItem = settings
+	t.logsItem = logs
+	t.exitItem = exit
+
+	t.mu.Unlock()
 
 	go func() {
 		for range show.ClickedCh {

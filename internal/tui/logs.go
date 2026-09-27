@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"time"
+	"tway/internal/config"
+	"tway/internal/i18n"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -17,22 +19,30 @@ type refreshSettings struct {
 
 func RunLogs(
 	path string,
+	configPath string,
+	texts i18n.Texts,
+	cfg *config.Config,
 ) error {
 	app := tview.NewApplication()
 	app.EnableMouse(true)
 
 	logs := tview.NewTextView()
 	logs.SetBorder(true)
-	logs.SetTitle(" Tway Logs ")
+	logs.SetTitle(
+		fmt.Sprintf(
+			" %s ",
+			texts.LogsTitle,
+		),
+	)
 	logs.SetScrollable(true)
 	logs.SetWrap(false)
 	logs.SetDynamicColors(false)
 
-	intervalButton := tview.NewButton("Interval")
-	pauseButton := tview.NewButton("Pause")
-	clearButton := tview.NewButton("Clear")
-	refreshButton := tview.NewButton("Refresh")
-	closeButton := tview.NewButton("Close")
+	intervalButton := tview.NewButton(texts.Interval)
+	pauseButton := tview.NewButton(texts.Pause)
+	clearButton := tview.NewButton(texts.Clear)
+	refreshButton := tview.NewButton(texts.Refresh)
+	closeButton := tview.NewButton(texts.Close)
 
 	status := tview.NewTextView()
 	status.SetTextAlign(tview.AlignCenter)
@@ -57,34 +67,30 @@ func RunLogs(
 
 	layout := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(
-			logs,
-			0,
-			1,
-			true,
-		).
-		AddItem(
-			footer,
-			1,
-			0,
-			false,
-		)
+		AddItem(logs, 0, 1, true).
+		AddItem(footer, 1, 0, false)
 
 	refreshInterval := time.Second
-	autoRefresh := true
+	if interval, err := time.ParseDuration(
+		cfg.Logs.Interval,
+	); err == nil && interval > 0 {
+		refreshInterval = interval
+	}
 
+	autoRefresh := true
 	updateFooter := func() {
-		state := "ON"
-		pauseLabel := "Pause"
+		state := texts.On
+		pauseLabel := texts.Pause
 
 		if !autoRefresh {
-			state = "OFF"
-			pauseLabel = "Resume"
+			state = texts.Off
+			pauseLabel = texts.Resume
 		}
 
 		status.SetText(
 			fmt.Sprintf(
-				" Auto: %s (%s)",
+				" %s: %s (%s)",
+				texts.Auto,
 				state,
 				refreshInterval,
 			),
@@ -98,7 +104,8 @@ func RunLogs(
 		if err != nil {
 			logs.SetText(
 				fmt.Sprintf(
-					"Failed to read log file: \n\n%s",
+					"%s:\n\n%s",
+					texts.FailedToReadLogFile,
 					err,
 				),
 			)
@@ -110,10 +117,7 @@ func RunLogs(
 	}
 
 	clear := func() error {
-		if err := os.Truncate(
-			path,
-			0,
-		); err != nil {
+		if err := os.Truncate(path, 0); err != nil {
 			return fmt.Errorf(
 				"clear log file: %w",
 				err,
@@ -147,29 +151,30 @@ func RunLogs(
 
 	showClearConfirmation := func() {
 		modal := tview.NewModal().
-			SetText("Clear all logs?").
+			SetText(texts.ClearAllLogs).
 			AddButtons([]string{
-				"Clear",
-				"Cancel",
+				texts.Clear,
+				texts.Cancel,
 			}).
 			SetDoneFunc(
-				func(buttonIndex int, buttonLabel string) {
-					if buttonLabel == "Clear" {
+				func(
+					buttonIndex int, _ string,
+				) {
+					if buttonIndex == 0 {
 						if err := clear(); err != nil {
 							errorModal := tview.NewModal().
 								SetText(
 									fmt.Sprintf(
-										"Failed to clear logs:\n\n%s",
+										"%s:\n\n%s",
+										texts.FailedToClearLogs,
 										err,
 									),
 								).
 								AddButtons(
-									[]string{
-										"OK",
-									},
+									[]string{texts.OK},
 								).
 								SetDoneFunc(
-									func(buttonIndex int, buttonLabel string) {
+									func(_ int, _ string) {
 										app.SetRoot(
 											layout,
 											true,
@@ -202,7 +207,7 @@ func RunLogs(
 
 	showIntervalInput := func() {
 		input := tview.NewInputField()
-		input.SetLabel("Interval (seconds): ")
+		input.SetLabel(texts.IntervalSeconds)
 		input.SetText(
 			fmt.Sprintf(
 				"%g",
@@ -216,9 +221,15 @@ func RunLogs(
 
 		form := tview.NewForm()
 		form.SetBorder(true)
-		form.SetTitle(" Auto Refresh ")
-		form.AddFormItem(input)
 
+		form.SetTitle(
+			fmt.Sprintf(
+				" %s ",
+				texts.AutoRefresh,
+			),
+		)
+
+		form.AddFormItem(input)
 		closeForm := func() {
 			app.SetRoot(
 				layout,
@@ -229,23 +240,40 @@ func RunLogs(
 		}
 
 		form.AddButton(
-			"Save",
+			texts.Save,
 			func() {
 				value := strings.TrimSpace(input.GetText())
 				interval, err := time.ParseDuration(value + "s")
 				if err != nil || interval <= 0 {
-					errorText.SetText("Enter a number greater than 0")
+					errorText.SetText(texts.EnterNumberGreaterThanZero)
 					return
 				}
 
 				refreshInterval = interval
+				latestConfig, err := config.LoadConfig(configPath)
+				if err != nil {
+					errorText.SetText(err.Error())
+					return
+				}
+
+				latestConfig.Logs.Interval = interval.String()
+				if err := config.SaveConfig(
+					configPath,
+					latestConfig,
+				); err != nil {
+					errorText.SetText(err.Error())
+					return
+				}
+
+				cfg.Logs.Interval = interval.String()
+
 				updateRefresh()
 				closeForm()
 			},
 		)
 
 		form.AddButton(
-			"Cancel",
+			texts.Cancel,
 			closeForm,
 		)
 
@@ -332,7 +360,7 @@ func RunLogs(
 			}
 
 			switch event.Rune() {
-			case 'q', 'Q':
+			case 'q', 'Q', 'й', 'Й':
 				app.Stop()
 				return nil
 

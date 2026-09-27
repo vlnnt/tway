@@ -69,6 +69,7 @@ func runConfigReloadLoop(
 	logger *zap.Logger,
 	configReloads <-chan *config.Config,
 	reloader *ConfigReloader,
+	onReload func(*config.Config),
 ) error {
 	for {
 		select {
@@ -87,6 +88,10 @@ func runConfigReloadLoop(
 					zap.Error(err),
 				)
 				continue
+			}
+
+			if onReload != nil {
+				onReload(newConfig)
 			}
 
 			logger.Info("Config hot reload complete!")

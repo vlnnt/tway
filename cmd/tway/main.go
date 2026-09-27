@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"tway/internal/config"
+	"tway/internal/i18n"
 	"tway/internal/logging"
 	"tway/internal/notifier"
 	"tway/internal/storage"
@@ -84,7 +85,18 @@ func main() {
 			return
 		}
 
-		if err := tui.RunLogs(logPath); err != nil {
+		texts := i18n.Get(i18n.English)
+		cfg, err := config.LoadConfig(*configPath)
+		if err == nil {
+			texts = i18n.Get(cfg.Language)
+		}
+
+		if err := tui.RunLogs(
+			logPath,
+			*configPath,
+			texts,
+			cfg,
+		); err != nil {
 			return
 		}
 
@@ -302,17 +314,6 @@ func main() {
 		},
 	)
 
-	group.Go(
-		func() error {
-			return runConfigReloadLoop(
-				ctx,
-				logger,
-				configReloads,
-				reloader,
-			)
-		},
-	)
-
 	if err := notificationService.Send(
 		notifier.Notification{
 			Title: "tway",
@@ -334,6 +335,7 @@ func main() {
 	trayApp := createTray(
 		iconPath,
 		logPath,
+		cfg,
 		logger,
 		stop,
 		reloader,
@@ -344,6 +346,22 @@ func main() {
 	)
 
 	logger.Info("Tray created!")
+
+	group.Go(
+		func() error {
+			return runConfigReloadLoop(
+				ctx,
+				logger,
+				configReloads,
+				reloader,
+				func(newConfig *config.Config) {
+					trayApp.SetTexts(
+						i18n.Get(newConfig.Language),
+					)
+				},
+			)
+		},
+	)
 
 	group.Go(
 		func() error {
