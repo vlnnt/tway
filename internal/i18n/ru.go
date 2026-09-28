@@ -45,7 +45,7 @@ var russian = Texts{
 	LastStream:               "Последний стрим",
 	LiveFor:                  "В эфире",
 	Live:                     "ОНЛАЙН",
-	Offline:                  "ОФФЛАЙН",
+	Offline:                  "НЕ В СЕТИ",
 	Loading:                  "Загрузка статусов стримов",
 	NoPlatforms:              "Нет включённых платформ.",
 	EnablePlatformInSettings: "Включите платформу в настройках.",
@@ -99,7 +99,7 @@ var russian = Texts{
 	StreamManualRefreshStatusReadyMessage:    "Статусы стримов обновлены!",
 
 	StreamOnlineMessage:  "Онлайн",
-	StreamOfflineMessage: "Оффлайн",
+	StreamOfflineMessage: "Не в сети",
 
 	StreamMonitoringClosedMessage: "Мониторинг стримов остановлен из-за критической ошибки. Tway будет закрыт.",
 
