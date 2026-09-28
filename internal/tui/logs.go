@@ -78,6 +78,8 @@ func RunLogs(
 	}
 
 	autoRefresh := true
+	currentLanguage := cfg.Language
+
 	updateFooter := func() {
 		state := texts.On
 		pauseLabel := texts.Pause
@@ -99,7 +101,38 @@ func RunLogs(
 		pauseButton.SetLabel(pauseLabel)
 	}
 
+	updateLanguage := func() {
+		latestConfig, err := config.LoadConfig(
+			configPath,
+		)
+		if err != nil {
+			return
+		}
+
+		if latestConfig.Language == currentLanguage {
+			return
+		}
+
+		currentLanguage = latestConfig.Language
+		texts = i18n.Get(currentLanguage)
+
+		logs.SetTitle(
+			fmt.Sprintf(
+				" %s ",
+				texts.LogsTitle,
+			),
+		)
+
+		intervalButton.SetLabel(texts.Interval)
+		clearButton.SetLabel(texts.Clear)
+		refreshButton.SetLabel(texts.Refresh)
+		closeButton.SetLabel(texts.Close)
+
+		updateFooter()
+	}
+
 	load := func() {
+		updateLanguage()
 		data, err := os.ReadFile(path)
 		if err != nil {
 			logs.SetText(

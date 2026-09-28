@@ -4,8 +4,6 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
-	"tway/internal/config"
-	"tway/internal/i18n"
 	"tway/internal/notifier"
 	"tway/internal/storage"
 	"tway/internal/tray"
@@ -17,7 +15,6 @@ import (
 func createTray(
 	iconPath *string,
 	logPath string,
-	cfg *config.Config,
 	logger *zap.Logger,
 	stop context.CancelFunc,
 	reloader *ConfigReloader,
@@ -28,15 +25,16 @@ func createTray(
 ) *tray.Tray {
 	trayApp := tray.NewTray(
 		logger,
-		i18n.Get(cfg.Language),
+		reloader.currentTexts(),
 		func() {
 			if !refreshRunning.CompareAndSwap(false, true) {
 				logger.Info("Manual stream refresh is already running!")
 
+				texts := reloader.currentTexts()
 				if err := notificationService.Send(
 					notifier.Notification{
 						Title:   "tway",
-						Message: "Manual stream refresh is already running!",
+						Message: texts.StreamManualRefreshAlreadyRunningMessage,
 						Icon:    *iconPath,
 					},
 				); err != nil {
@@ -53,12 +51,13 @@ func createTray(
 				defer refreshGroup.Done()
 				defer refreshRunning.Store(false)
 
+				texts := reloader.currentTexts()
 				logger.Info("Manual stream refresh requested...")
 
 				if err := notificationService.Send(
 					notifier.Notification{
 						Title:   "tway",
-						Message: "Processing streams status refresh started!",
+						Message: texts.StreamManualRefreshRequestMessage,
 						Icon:    *iconPath,
 					},
 				); err != nil {
@@ -68,20 +67,17 @@ func createTray(
 					)
 				}
 
-				reloader.withPlatforms(
-					func(platforms []Platform) {
-						refreshStreamStates(
-							logger,
-							platforms,
-							stateStorage,
-						)
-					},
+				platforms := reloader.platformsSnapshot()
+				refreshStreamStates(
+					logger,
+					platforms,
+					stateStorage,
 				)
 
 				if err := notificationService.Send(
 					notifier.Notification{
 						Title:   "tway",
-						Message: "Streams status refreshed!",
+						Message: texts.StreamManualRefreshStatusReadyMessage,
 						Icon:    *iconPath,
 					},
 				); err != nil {
@@ -101,6 +97,7 @@ func createTray(
 				logger,
 				stateStorage,
 				notificationService,
+				reloader.currentTexts(),
 			)
 
 			logger.Info("Manual show streams summary completed!")

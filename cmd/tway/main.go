@@ -85,21 +85,17 @@ func main() {
 			return
 		}
 
-		texts := i18n.Get(i18n.English)
 		cfg, err := config.LoadConfig(*configPath)
 		if err == nil {
-			texts = i18n.Get(cfg.Language)
+			cfg = config.Default()
 		}
 
+		texts := i18n.Get(i18n.English)
 		if err := tui.RunLogs(
-			logPath,
-			*configPath,
-			texts,
-			cfg,
+			logPath, *configPath, texts, cfg,
 		); err != nil {
 			return
 		}
-
 		return
 	}
 
@@ -179,10 +175,12 @@ func main() {
 		zap.Int("WTV", len(cfg.WTV.Channels)),
 	)
 
+	texts := i18n.Get(cfg.Language)
 	if !*tuiMode {
 		instanceLock, stop := acquireInstanceLock(
 			iconPath,
 			logger,
+			texts,
 		)
 
 		if stop {
@@ -242,7 +240,7 @@ func main() {
 	if err := notificationService.Send(
 		notifier.Notification{
 			Title:   "tway",
-			Message: "Initializing services and connecting to streaming platforms...",
+			Message: texts.StreamInitializationMessage,
 			Icon:    *iconPath,
 		},
 	); err != nil {
@@ -316,10 +314,9 @@ func main() {
 
 	if err := notificationService.Send(
 		notifier.Notification{
-			Title: "tway",
-			Message: "Initialization completed. " +
-				"All services are connected and stream monitoring is active.",
-			Icon: *iconPath,
+			Title:   "tway",
+			Message: texts.StreamMonitoringReadyMessage,
+			Icon:    *iconPath,
 		},
 	); err != nil {
 		logger.Error(
@@ -335,7 +332,6 @@ func main() {
 	trayApp := createTray(
 		iconPath,
 		logPath,
-		cfg,
 		logger,
 		stop,
 		reloader,
@@ -355,9 +351,7 @@ func main() {
 				configReloads,
 				reloader,
 				func(newConfig *config.Config) {
-					trayApp.SetTexts(
-						i18n.Get(newConfig.Language),
-					)
+					trayApp.SetTexts(i18n.Get(newConfig.Language))
 				},
 			)
 		},

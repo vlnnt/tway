@@ -6,6 +6,7 @@ import (
 	"time"
 	"tway/internal/app"
 	"tway/internal/config"
+	"tway/internal/i18n"
 	"tway/internal/notifier"
 	"tway/internal/storage"
 
@@ -25,6 +26,7 @@ func createApplications(
 	checkInterval time.Duration,
 	notificationService notifier.Notifier,
 	stateStorage *storage.StateStorage,
+	texts i18n.Texts,
 ) []*app.App {
 	applications := make(
 		[]*app.App,
@@ -42,6 +44,7 @@ func createApplications(
 			platform.Client,
 			notificationService,
 			stateStorage,
+			texts,
 		)
 
 		applications = append(applications, application)
@@ -91,6 +94,7 @@ func startWorkers(
 	stateStorage *storage.StateStorage,
 	notificationService notifier.Notifier,
 	onFatal func(error),
+	texts i18n.Texts,
 ) *workerSet {
 	workerCtx, cancel := context.WithCancel(parentCtx)
 	workers := &workerSet{
@@ -139,6 +143,7 @@ func startWorkers(
 					stateStorage,
 					notificationService,
 					icon,
+					texts,
 				)
 			}()
 		}

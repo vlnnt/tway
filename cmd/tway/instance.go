@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"tway/internal/i18n"
 	"tway/internal/instance"
 	"tway/internal/notifier"
 
@@ -11,6 +12,7 @@ import (
 func acquireInstanceLock(
 	iconPath *string,
 	logger *zap.Logger,
+	texts i18n.Texts,
 ) (*instance.Lock, bool) {
 	instanceLock, err := instance.Acquire()
 	if err != nil {
@@ -27,10 +29,9 @@ func acquireInstanceLock(
 
 			if notifyErr := notificationService.Send(
 				notifier.Notification{
-					Title: "tway",
-					Message: "Tway is already running. " +
-						"Only one instance can run at a time.",
-					Icon: *iconPath,
+					Title:   "tway",
+					Message: texts.StreamSingleInstanceMessage,
+					Icon:    *iconPath,
 				},
 			); notifyErr != nil {
 				logger.Error(

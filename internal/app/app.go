@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"tway/internal/client"
+	"tway/internal/i18n"
 	"tway/internal/notifier"
 	"tway/internal/storage"
 )
@@ -27,6 +28,7 @@ type App struct {
 	client        client.Client
 	notifier      notifier.Notifier
 	storage       *storage.StateStorage
+	texts         i18n.Texts
 }
 
 func NewApp(
@@ -38,6 +40,7 @@ func NewApp(
 	client client.Client,
 	notificationService notifier.Notifier,
 	storage *storage.StateStorage,
+	texts i18n.Texts,
 ) *App {
 	return &App{
 		icon:          icon,
@@ -48,6 +51,7 @@ func NewApp(
 		client:        client,
 		notifier:      notificationService,
 		storage:       storage,
+		texts:         texts,
 	}
 }
 
@@ -187,10 +191,9 @@ func (a *App) Run(
 
 							err := a.notifier.Send(
 								notifier.Notification{
-									Title: channel +
-										" is now live!",
+									Title: fmt.Sprintf(a.texts.StreamStartedTitle, channel),
 									Message: fmt.Sprintf(
-										"%s\nCategory: %s",
+										a.texts.StreamStartedMessage,
 										stream.Title,
 										stream.Subcategory,
 									),
@@ -220,9 +223,8 @@ func (a *App) Run(
 
 							err := a.notifier.Send(
 								notifier.Notification{
-									Title: channel +
-										" is no longer live!",
-									Message: "The streamer has left the broadcast!",
+									Title:   fmt.Sprintf(a.texts.StreamEndedTitle, channel),
+									Message: a.texts.StreamEndedMessage,
 									Icon:    a.icon,
 									URL:     stream.URL,
 								},

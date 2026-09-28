@@ -88,4 +88,23 @@ var russian = Texts{
 	OpenTwaySettings:     "Открыть настройки Tway",
 	OpenTwayLogFile:      "Открыть файл логов Tway",
 	ExitApplication:      "Выйти из приложения",
+
+	StreamStartedTitle:   "%s теперь в эфире!",
+	StreamStartedMessage: "%s\nКатегория: %s",
+	StreamEndedTitle:     "%s больше не в эфире!",
+	StreamEndedMessage:   "Стример завершил трансляцию!",
+
+	StreamManualRefreshAlreadyRunningMessage: "Ручное обновление статусов стримов уже выполняется!",
+	StreamManualRefreshRequestMessage:        "Запущено обновление статусов стримов!",
+	StreamManualRefreshStatusReadyMessage:    "Статусы стримов обновлены!",
+
+	StreamOnlineMessage:  "Онлайн",
+	StreamOfflineMessage: "Оффлайн",
+
+	StreamMonitoringClosedMessage: "Мониторинг стримов остановлен из-за критической ошибки. Tway будет закрыт.",
+
+	StreamSingleInstanceMessage: "Tway уже запущен. Одновременно может работать только один экземпляр.",
+
+	StreamInitializationMessage:  "Инициализация сервисов и подключение к стриминговым платформам...",
+	StreamMonitoringReadyMessage: "Инициализация завершена. Все сервисы подключены, мониторинг стримов активен.",
 }

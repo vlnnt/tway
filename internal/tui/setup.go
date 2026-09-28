@@ -109,7 +109,6 @@ func (u *TUI) ShowSetup(
 			func() {
 				u.showPlatformSetup(
 					config,
-					&saved,
 					showMainSetup,
 					0,
 					texts,
@@ -211,7 +210,6 @@ func (u *TUI) ShowSetup(
 
 func (u *TUI) showPlatformSetup(
 	config *config.Config,
-	saved *bool,
 	showMainSetup func(),
 	activePlatform int,
 	texts i18n.Texts,
@@ -247,7 +245,6 @@ func (u *TUI) showPlatformSetup(
 
 			u.showPlatformSetup(
 				config,
-				saved,
 				showMainSetup,
 				index,
 				texts,
@@ -278,7 +275,6 @@ func (u *TUI) showPlatformSetup(
 				func() {
 					u.showPlatformSetup(
 						config,
-						saved,
 						showMainSetup,
 						currentPlatform,
 						texts,
@@ -302,7 +298,6 @@ func (u *TUI) showPlatformSetup(
 				func() {
 					u.showPlatformSetup(
 						config,
-						saved,
 						showMainSetup,
 						currentPlatform,
 						texts,
@@ -317,62 +312,6 @@ func (u *TUI) showPlatformSetup(
 		texts.Back,
 		func() {
 			showMainSetup()
-		},
-	)
-
-	form.AddButton(
-		texts.Save,
-		func() {
-			if err := validateInterval(
-				config.Check,
-				10*time.Second,
-				texts,
-			); err != nil {
-				showInternalError(
-					u,
-					texts.CheckInterval,
-					err,
-					func() {
-						u.showPlatformSetup(
-							config,
-							saved,
-							showMainSetup,
-							activePlatform,
-							texts,
-						)
-					},
-					texts,
-				)
-				return
-			}
-
-			if config.Summary.Enable {
-				if err := validateInterval(
-					config.Summary.Interval,
-					time.Minute,
-					texts,
-				); err != nil {
-					showInternalError(
-						u,
-						texts.SummaryInterval,
-						err,
-						func() {
-							u.showPlatformSetup(
-								config,
-								saved,
-								showMainSetup,
-								activePlatform,
-								texts,
-							)
-						},
-						texts,
-					)
-					return
-				}
-			}
-
-			*saved = true
-			u.application.Stop()
 		},
 	)
 

@@ -7,6 +7,7 @@ import (
 	"time"
 	"tway/internal/app"
 	"tway/internal/config"
+	"tway/internal/i18n"
 	"tway/internal/notifier"
 	"tway/internal/storage"
 	"tway/internal/tray"
@@ -49,6 +50,7 @@ func NewConfigReloader(
 func (cr *ConfigReloader) start(
 	cfg *config.Config,
 ) error {
+	texts := i18n.Get(cfg.Language)
 	cr.mu.RLock()
 	started := cr.workers != nil
 	cr.mu.RUnlock()
@@ -89,6 +91,7 @@ func (cr *ConfigReloader) start(
 		checkInterval,
 		cr.notificationService,
 		cr.stateStorage,
+		texts,
 	)
 
 	cr.mu.Lock()
@@ -109,6 +112,7 @@ func (cr *ConfigReloader) start(
 		cr.stateStorage,
 		cr.notificationService,
 		cr.reportFatal,
+		texts,
 	)
 
 	cr.cfg = cfg
@@ -143,6 +147,7 @@ func (cr *ConfigReloader) start(
 func (cr *ConfigReloader) reload(
 	cfg *config.Config,
 ) error {
+	texts := i18n.Get(cfg.Language)
 	checkInterval, summaryInterval, err := parseIntervals(cfg)
 	if err != nil {
 		return err
@@ -161,6 +166,7 @@ func (cr *ConfigReloader) reload(
 		checkInterval,
 		cr.notificationService,
 		cr.stateStorage,
+		texts,
 	)
 
 	cr.mu.Lock()
@@ -190,6 +196,7 @@ func (cr *ConfigReloader) reload(
 			zap.Error(err),
 		)
 
+		oldTexts := i18n.Get(oldConfig.Language)
 		cr.workers = startWorkers(
 			cr.ctx,
 			cr.icon,
@@ -201,6 +208,7 @@ func (cr *ConfigReloader) reload(
 			cr.stateStorage,
 			cr.notificationService,
 			cr.reportFatal,
+			oldTexts,
 		)
 
 		return err
@@ -223,6 +231,7 @@ func (cr *ConfigReloader) reload(
 		cr.stateStorage,
 		cr.notificationService,
 		cr.reportFatal,
+		texts,
 	)
 
 	cr.cfg = cfg
@@ -254,13 +263,14 @@ func (cr *ConfigReloader) reload(
 	return nil
 }
 
-func (cr *ConfigReloader) withPlatforms(
-	fn func([]Platform),
-) {
+func (cr *ConfigReloader) platformsSnapshot() []Platform {
 	cr.mu.RLock()
 	defer cr.mu.RUnlock()
 
-	fn(cr.platforms)
+	return append(
+		[]Platform(nil),
+		cr.platforms...,
+	)
 }
 
 func (cr *ConfigReloader) stop() {
@@ -297,12 +307,12 @@ func (cr *ConfigReloader) runFatalHandler(
 			zap.Error(err),
 		)
 
+		texts := cr.currentTexts()
 		if notifyErr := notificationService.Send(
 			notifier.Notification{
-				Title: "tway",
-				Message: "Stream monitoring stopped due to a fatal error. " +
-					"Tway will be closed.",
-				Icon: iconPath,
+				Title:   "tway",
+				Message: texts.StreamMonitoringClosedMessage,
+				Icon:    iconPath,
 			},
 		); notifyErr != nil {
 			logger.Error(
@@ -360,4 +370,16 @@ func parseIntervals(
 	}
 
 	return checkInterval, summaryInterval, nil
+}
+
+func (cr *ConfigReloader) currentTexts() i18n.Texts {
+	cr.mu.RLock()
+	defer cr.mu.RUnlock()
+
+	language := i18n.English
+	if cr.cfg != nil && cr.cfg.Language != "" {
+		language = cr.cfg.Language
+	}
+
+	return i18n.Get(language)
 }

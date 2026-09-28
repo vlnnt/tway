@@ -88,4 +88,23 @@ var english = Texts{
 	OpenTwaySettings:     "Open Tway settings",
 	OpenTwayLogFile:      "Open Tway log file",
 	ExitApplication:      "Exit application",
+
+	StreamStartedTitle:   "%s is now live!",
+	StreamStartedMessage: "%s\nCategory: %s",
+	StreamEndedTitle:     "%s is no longer live!",
+	StreamEndedMessage:   "The streamer has left the broadcast!",
+
+	StreamManualRefreshAlreadyRunningMessage: "Manual stream refresh is already running!",
+	StreamManualRefreshRequestMessage:        "Processing streams status refresh started!",
+	StreamManualRefreshStatusReadyMessage:    "Streams status refreshed!",
+
+	StreamOnlineMessage:  "Online",
+	StreamOfflineMessage: "Offline",
+
+	StreamMonitoringClosedMessage: "Stream monitoring stopped due to a fatal error. Tway will be closed.",
+
+	StreamSingleInstanceMessage: "Tway is already running. Only one instance can run at a time.",
+
+	StreamInitializationMessage:  "Initializing services and connecting to streaming platforms...",
+	StreamMonitoringReadyMessage: "Initialization completed. All services are connected and stream monitoring is active.",
 }

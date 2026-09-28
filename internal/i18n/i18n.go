@@ -93,6 +93,25 @@ type Texts struct {
 	OpenTwaySettings     string
 	OpenTwayLogFile      string
 	ExitApplication      string
+
+	StreamStartedTitle   string
+	StreamStartedMessage string
+	StreamEndedTitle     string
+	StreamEndedMessage   string
+
+	StreamManualRefreshAlreadyRunningMessage string
+	StreamManualRefreshRequestMessage        string
+	StreamManualRefreshStatusReadyMessage    string
+
+	StreamOnlineMessage  string
+	StreamOfflineMessage string
+
+	StreamMonitoringClosedMessage string
+
+	StreamSingleInstanceMessage string
+
+	StreamInitializationMessage  string
+	StreamMonitoringReadyMessage string
 }
 
 func Get(

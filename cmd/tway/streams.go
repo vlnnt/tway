@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"tway/internal/i18n"
 	"tway/internal/notifier"
 	"tway/internal/storage"
 
@@ -61,12 +62,14 @@ func runSummaryLoop(
 	state *storage.StateStorage,
 	notificationService notifier.Notifier,
 	icon string,
+	texts i18n.Texts,
 ) {
 	sendStreamSummary(
 		icon,
 		logger,
 		state,
 		notificationService,
+		texts,
 	)
 
 	ticker := time.NewTicker(interval)
@@ -84,6 +87,7 @@ func runSummaryLoop(
 				logger,
 				state,
 				notificationService,
+				texts,
 			)
 		}
 	}
@@ -181,6 +185,7 @@ func sendStreamSummary(
 	logger *zap.Logger,
 	state *storage.StateStorage,
 	notificationService notifier.Notifier,
+	texts i18n.Texts,
 ) {
 	logger.Info("Processing overall streams...")
 	states, err := state.GetTracked()
@@ -207,8 +212,10 @@ func sendStreamSummary(
 	}
 
 	status := fmt.Sprintf(
-		"🟢 Online: %d\n🔴 Offline: %d",
+		"🟢 %s: %d\n🔴 %s: %d",
+		texts.StreamOnlineMessage,
 		online,
+		texts.StreamOfflineMessage,
 		offline,
 	)
 
