@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"tway/internal/client"
+	"tway/internal/i18n"
 	"tway/internal/notifier"
 	"tway/internal/storage"
 
@@ -15,25 +15,61 @@ import (
 
 const streamInitConcurrency = 4
 
-type Platform struct {
-	Name     string
-	Channels []string
-	Client   client.Client
+func syncTrackedStreams(
+	logger *zap.Logger,
+	platforms []Platform,
+	stateStorage *storage.StateStorage,
+) error {
+	logger.Info("Synchronizing tracked stream states...")
+	active := make([]storage.StreamKey, 0)
+
+	for _, platform := range platforms {
+		for _, channel := range platform.Channels {
+			active = append(
+				active,
+				storage.StreamKey{
+					Platform: platform.Name,
+					Channel:  channel,
+				},
+			)
+		}
+	}
+
+	if err := stateStorage.SyncTracked(active); err != nil {
+		logger.Error(
+			"Failed to synchronize tracked stream states",
+			zap.Error(err),
+		)
+
+		return err
+	}
+
+	logger.Info(
+		"Tracked stream states synchronized!",
+		zap.Int(
+			"Tracked",
+			len(active),
+		),
+	)
+
+	return nil
 }
 
-func runSummaryWorker(
+func runSummaryLoop(
 	ctx context.Context,
 	logger *zap.Logger,
 	interval time.Duration,
 	state *storage.StateStorage,
 	notificationService notifier.Notifier,
 	icon string,
+	texts i18n.Texts,
 ) {
-	processOverall(
+	sendStreamSummary(
 		icon,
 		logger,
 		state,
 		notificationService,
+		texts,
 	)
 
 	ticker := time.NewTicker(interval)
@@ -46,17 +82,18 @@ func runSummaryWorker(
 			return
 
 		case <-ticker.C:
-			processOverall(
+			sendStreamSummary(
 				icon,
 				logger,
 				state,
 				notificationService,
+				texts,
 			)
 		}
 	}
 }
 
-func initializeStreamStates(
+func refreshStreamStates(
 	logger *zap.Logger,
 	platforms []Platform,
 	stateStorage *storage.StateStorage,
@@ -70,7 +107,6 @@ func initializeStreamStates(
 		for _, channel := range platform.Channels {
 			platform := platform
 			channel := channel
-
 			group.Go(func() error {
 				stream, err := platform.Client.GetStream(channel)
 				if err != nil {
@@ -120,6 +156,7 @@ func initializeStreamStates(
 					storage.StreamState{
 						Platform:     platform.Name,
 						Channel:      channel,
+						IsTracked:    true,
 						IsLive:       stream.IsLive,
 						LastStreamAt: lastStreamAt,
 						StartedAt:    startedAt,
@@ -143,17 +180,18 @@ func initializeStreamStates(
 	logger.Info("Stream states initialized!")
 }
 
-func processOverall(
+func sendStreamSummary(
 	icon string,
 	logger *zap.Logger,
 	state *storage.StateStorage,
 	notificationService notifier.Notifier,
+	texts i18n.Texts,
 ) {
 	logger.Info("Processing overall streams...")
-	states, err := state.GetAll()
+	states, err := state.GetTracked()
 	if err != nil {
 		logger.Error(
-			"Failed to get stream states",
+			"Failed to get tracked stream states",
 			zap.Error(err),
 		)
 		return
@@ -169,13 +207,15 @@ func processOverall(
 	}
 
 	if online+offline == 0 {
-		logger.Warn("No stream statuses received!")
+		logger.Warn("No tracked stream statuses received!")
 		return
 	}
 
 	status := fmt.Sprintf(
-		"🟢 Online: %d\n🔴 Offline: %d",
+		"🟢 %s: %d\n🔴 %s: %d",
+		texts.StreamOnlineMessage,
 		online,
+		texts.StreamOfflineMessage,
 		offline,
 	)
 
@@ -198,25 +238,4 @@ func processOverall(
 		zap.Int("Online", online),
 		zap.Int("Offline", offline),
 	)
-}
-
-func streamURL(
-	platform, channel string,
-) string {
-	switch platform {
-	case "twitch":
-		return "https://www.twitch.tv/" + channel
-
-	case "kick":
-		return "https://kick.com/" + channel
-
-	case "youtube":
-		return "https://www.youtube.com/@" + channel
-
-	case "wtv":
-		return "https://w.tv/" + channel
-
-	default:
-		return ""
-	}
 }

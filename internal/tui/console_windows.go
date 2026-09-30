@@ -12,18 +12,26 @@ import (
 var (
 	kernel32          = windows.NewLazySystemDLL("kernel32.dll")
 	procAttachConsole = kernel32.NewProc("AttachConsole")
+	procAllocConsole  = kernel32.NewProc("AllocConsole")
 )
 
 const attachParentProcess = ^uint32(0)
 
 func AttachConsole() error {
-	r1, _, err := procAttachConsole.Call(
+	r1, _, attachErr := procAttachConsole.Call(
 		uintptr(attachParentProcess),
 	)
 
 	if r1 == 0 {
-		if err != windows.ERROR_ACCESS_DENIED {
-			return fmt.Errorf("attach console: %w", err)
+		if attachErr != windows.ERROR_ACCESS_DENIED {
+			r1, _, allocErr := procAllocConsole.Call()
+			if r1 == 0 {
+				return fmt.Errorf(
+					"attach console: %v; allocate console: %w",
+					attachErr,
+					allocErr,
+				)
+			}
 		}
 	}
 

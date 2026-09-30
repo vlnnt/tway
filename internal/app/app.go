@@ -9,8 +9,14 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"tway/internal/client"
+	"tway/internal/i18n"
 	"tway/internal/notifier"
 	"tway/internal/storage"
+)
+
+const (
+	storageReadAttempts   = 3
+	storageReadRetryDelay = time.Second
 )
 
 type App struct {
@@ -22,6 +28,7 @@ type App struct {
 	client        client.Client
 	notifier      notifier.Notifier
 	storage       *storage.StateStorage
+	texts         i18n.Texts
 }
 
 func NewApp(
@@ -33,6 +40,7 @@ func NewApp(
 	client client.Client,
 	notificationService notifier.Notifier,
 	storage *storage.StateStorage,
+	texts i18n.Texts,
 ) *App {
 	return &App{
 		icon:          icon,
@@ -43,6 +51,7 @@ func NewApp(
 		client:        client,
 		notifier:      notificationService,
 		storage:       storage,
+		texts:         texts,
 	}
 }
 
@@ -61,20 +70,42 @@ func (a *App) Run(
 	for _, channel := range a.channels {
 		group.Go(func(channel string) func() error {
 			return func() error {
-				ticker := time.NewTicker(a.checkInterval)
-				defer ticker.Stop()
+				var err error
+				var state *storage.StreamState
 
-				state, err := a.storage.Get(a.platform, channel)
-				if err != nil {
+				for attempt := 1; attempt <= storageReadAttempts; attempt++ {
+					state, err = a.storage.Get(a.platform, channel)
+					if err == nil {
+						break
+					}
+
 					a.log.Error(
 						"Failed to load stream state",
 						zap.String("Platform", a.platform),
 						zap.String("Channel", channel),
+						zap.Int("Attempt", attempt),
 						zap.Error(err),
 					)
 
-					return err
+					if attempt == storageReadAttempts {
+						return fmt.Errorf(
+							"load stream state for %s/%s: %w",
+							a.platform,
+							channel,
+							err,
+						)
+					}
+
+					select {
+					case <-ctx.Done():
+						return nil
+
+					case <-time.After(storageReadRetryDelay):
+					}
 				}
+
+				ticker := time.NewTicker(a.checkInterval)
+				defer ticker.Stop()
 
 				wasLive := false
 				lastStreamAt := time.Time{}
@@ -160,10 +191,9 @@ func (a *App) Run(
 
 							err := a.notifier.Send(
 								notifier.Notification{
-									Title: channel +
-										" is now live!",
+									Title: fmt.Sprintf(a.texts.StreamStartedTitle, channel),
 									Message: fmt.Sprintf(
-										"%s\nCategory: %s",
+										a.texts.StreamStartedMessage,
 										stream.Title,
 										stream.Subcategory,
 									),
@@ -193,9 +223,8 @@ func (a *App) Run(
 
 							err := a.notifier.Send(
 								notifier.Notification{
-									Title: channel +
-										" is no longer live!",
-									Message: "The streamer has left the broadcast!",
+									Title:   fmt.Sprintf(a.texts.StreamEndedTitle, channel),
+									Message: a.texts.StreamEndedMessage,
 									Icon:    a.icon,
 									URL:     stream.URL,
 								},

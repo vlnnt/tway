@@ -3,6 +3,7 @@ module tway
 go 1.26.5
 
 require (
+	github.com/atotto/clipboard v0.1.4
 	github.com/gdamore/tcell/v2 v2.8.1
 	github.com/getlantern/systray v1.2.2
 	github.com/go-toast/toast v0.0.0-20190211030409-01e6764cf0a4
@@ -12,6 +13,7 @@ require (
 	go.uber.org/zap v1.28.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v2 v2.4.0
 	modernc.org/sqlite v1.56.0
 )

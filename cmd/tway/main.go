@@ -11,16 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"tway/internal/app"
-	"tway/internal/client"
-	"tway/internal/client/kick"
-	"tway/internal/client/twitch"
-	"tway/internal/client/wtv"
-	"tway/internal/client/youtube"
 	"tway/internal/config"
+	"tway/internal/i18n"
+	"tway/internal/logging"
 	"tway/internal/notifier"
 	"tway/internal/storage"
-	"tway/internal/tray"
 	"tway/internal/tui"
 
 	"go.uber.org/zap"
@@ -52,18 +47,74 @@ func main() {
 		"Run TUI",
 	)
 
-	flag.Parse()
-	var logger *zap.Logger
+	setupMode := flag.Bool(
+		"setup",
+		false,
+		"Open configuration setup",
+	)
 
-	if *tuiMode {
+	bootstrapSetupMode := flag.Bool(
+		"bootstrap-setup",
+		false,
+		"Open bootstrap configuration setup",
+	)
+
+	afterSetupMode := flag.Bool(
+		"after-setup",
+		false,
+		"Run after setup save",
+	)
+
+	logsMode := flag.Bool(
+		"logs",
+		false,
+		"Show logs",
+	)
+
+	flag.Parse()
+	showStreamersAfterSetup := *afterSetupMode
+
+	var (
+		logger  *zap.Logger
+		logPath string
+	)
+
+	if *logsMode {
+		logPath, err := logging.Path()
+		if err != nil {
+			return
+		}
+
+		cfg, err := config.LoadConfig(*configPath)
+		if err == nil {
+			cfg = config.Default()
+		}
+
+		texts := i18n.Get(i18n.English)
+		if err := tui.RunLogs(
+			logPath, *configPath, texts, cfg,
+		); err != nil {
+			return
+		}
+		return
+	}
+
+	if *tuiMode || *setupMode || *bootstrapSetupMode {
 		logger = zap.NewNop()
 	} else {
-		logger, err = zap.NewProduction()
+		logger, logPath, err = logging.New()
 		if err != nil {
 			return
 		}
 
 		defer logger.Sync()
+	}
+
+	if logPath != "" {
+		logger.Info(
+			"Logging initialized",
+			zap.String("Path", logPath),
+		)
 	}
 
 	logger.Info(
@@ -77,95 +128,74 @@ func main() {
 		zap.String("Path", *configPath),
 	)
 
-	config, err := config.LoadConfig(*configPath)
+	cfg, err := config.LoadConfig(*configPath)
+	firstRun := false
+
 	if err != nil {
-		logger.Error(
-			"config.LoadConfig",
-			zap.Error(err),
-		)
-		return
-	}
-
-	checkInterval, err := time.ParseDuration(config.Check)
-	if err != nil {
-		logger.Error(
-			"Parse check interval",
-			zap.Error(err),
-		)
-		return
-	}
-
-	if checkInterval <= 0 {
-		logger.Error(
-			"Check interval must be greater than zero",
-			zap.Duration(
-				"Check interval",
-				checkInterval,
-			),
-		)
-		return
-	}
-
-	var summaryInterval time.Duration
-	if config.Summary.Enable {
-		summaryInterval, err = time.ParseDuration(config.Summary.Interval)
-		if err != nil {
+		if !os.IsNotExist(err) {
 			logger.Error(
-				"Parse summary interval",
+				"config.LoadConfig",
 				zap.Error(err),
 			)
+
 			return
 		}
 
-		if summaryInterval <= 0 {
-			logger.Error(
-				"Summary interval must be greater than zero",
-				zap.Duration(
-					"Summary interval",
-					summaryInterval,
-				),
-			)
+		cfg = config.Default()
+		firstRun = true
+	}
+
+	if firstRun || *setupMode || *bootstrapSetupMode {
+		stop := runSetup(
+			logger,
+			firstRun,
+			setupMode,
+			configPath,
+			cfg,
+			bootstrapSetupMode,
+		)
+
+		if stop {
 			return
+		}
+
+		if firstRun {
+			showStreamersAfterSetup = true
 		}
 	}
 
 	logger.Info(
 		"Config has loaded",
-		zap.Duration("Check interval", checkInterval),
-		zap.Duration("Summary interval", summaryInterval),
-		zap.Bool("Summary notify status", config.Summary.Enable),
-		zap.Int("Twitch", len(config.Twitch.Channels)),
-		zap.Int("Kick", len(config.Kick.Channels)),
-		zap.Int("Youtube", len(config.Youtube.Channels)),
-		zap.Int("WTV", len(config.WTV.Channels)),
+		zap.String("Check interval", cfg.Check),
+		zap.String("Summary interval", cfg.Summary.Interval),
+		zap.Bool("Summary notify status", cfg.Summary.Enable),
+		zap.Int("Twitch", len(cfg.Twitch.Channels)),
+		zap.Int("Kick", len(cfg.Kick.Channels)),
+		zap.Int("Youtube", len(cfg.Youtube.Channels)),
+		zap.Int("WTV", len(cfg.WTV.Channels)),
 	)
 
-	platforms := []Platform{
-		{
-			Name:     "twitch",
-			Channels: config.Twitch.Channels,
-		},
-		{
-			Name:     "kick",
-			Channels: config.Kick.Channels,
-		},
-		{
-			Name:     "youtube",
-			Channels: config.Youtube.Channels,
-		},
-		{
-			Name:     "wtv",
-			Channels: config.WTV.Channels,
-		},
+	texts := i18n.Get(cfg.Language)
+	if !*tuiMode {
+		instanceLock, stop := acquireInstanceLock(
+			iconPath,
+			logger,
+			texts,
+		)
+
+		if stop {
+			return
+		}
+
+		defer func() {
+			if err := instanceLock.Close(); err != nil {
+				logger.Error(
+					"Release instance lock",
+					zap.Error(err),
+				)
+			}
+		}()
 	}
-
-	logger.Info(
-		"Platform configuration initialized",
-		zap.Int(
-			"Platforms",
-			len(platforms),
-		),
-	)
 
 	logger.Info("Initializing state storage...")
 	stateStorage, err := storage.NewStateStorage(
@@ -186,55 +216,16 @@ func main() {
 	logger.Info("State storage initialized!")
 
 	if *tuiMode {
-		if err := tui.AttachConsole(); err != nil {
-			logger.Error(
-				"main.AttachConsole",
-				zap.Error(err),
-			)
-			return
-		}
-
-		ui := tui.NewTUI()
-		if err := ui.ShowStreamers(
-			func() ([]*client.Stream, error) {
-				var streams []*client.Stream
-				for _, platform := range platforms {
-					for _, channel := range platform.Channels {
-						state, err := stateStorage.Get(platform.Name, channel)
-						if err != nil {
-							continue
-						}
-
-						if state == nil {
-							continue
-						}
-
-						streams = append(
-							streams,
-							&client.Stream{
-								Channel:      state.Channel,
-								IsLive:       state.IsLive,
-								LastStreamAt: state.LastStreamAt,
-								StartedAt:    state.StartedAt,
-								URL: streamURL(
-									state.Platform,
-									state.Channel,
-								),
-							},
-						)
-					}
-				}
-				return streams, nil
-			},
-		); err != nil {
-			return
-		}
-
+		runStreamersTUI(
+			cfg,
+			logger,
+			stateStorage,
+		)
 		return
 	}
 
 	logger.Info("Initializing notifier service...")
-	notificationService, err := notifier.New(logger)
+	notificationService, err := notifier.NewNotifier(logger)
 	if err != nil {
 		logger.Error(
 			"Create notifier",
@@ -249,7 +240,7 @@ func main() {
 	if err := notificationService.Send(
 		notifier.Notification{
 			Title:   "tway",
-			Message: "Initializing services and connecting to streaming platforms...",
+			Message: texts.StreamInitializationMessage,
 			Icon:    *iconPath,
 		},
 	); err != nil {
@@ -260,158 +251,71 @@ func main() {
 		return
 	}
 
-	logger.Info("Initializing clients...")
-	platforms[0].Client = twitch.NewClient(
-		logger,
-		config.Twitch.Proxy.HTTP,
-		config.Twitch.Proxy.Socks,
-	)
-
-	platforms[1].Client = kick.NewClient(
-		logger,
-		config.Kick.Proxy.HTTP,
-		config.Kick.Proxy.Socks,
-	)
-
-	platforms[2].Client = youtube.NewClient(
-		logger,
-		config.Youtube.Proxy.HTTP,
-		config.Youtube.Proxy.Socks,
-	)
-
-	platforms[3].Client = wtv.NewClient(
-		logger,
-		config.WTV.Proxy.HTTP,
-		config.WTV.Proxy.Socks,
-	)
-
-	logger.Info(
-		"Clients initialized!",
-		zap.Int(
-			"Platforms",
-			len(platforms),
-		),
-	)
-
-	logger.Info("Ensuring stream states...")
-	for _, platform := range platforms {
-		for _, channel := range platform.Channels {
-			if err := stateStorage.Ensure(
-				platform.Name,
-				channel,
-				time.Time{},
-			); err != nil {
-				logger.Error(
-					"Failed to ensure stream state",
-					zap.String(
-						"Platform",
-						platform.Name,
-					),
-					zap.String(
-						"Channel",
-						channel,
-					),
-					zap.Error(err),
-				)
-				return
-			}
-		}
-	}
-
-	logger.Info("Stream states ensured!")
-
-	initializeStreamStates(
-		logger,
-		platforms,
-		stateStorage,
-	)
-
-	logger.Info("Initializing applications...")
-	applications := make(
-		[]*app.App,
-		0,
-		len(platforms),
-	)
-
-	for _, platform := range platforms {
-		application := app.NewApp(
-			*iconPath,
-			logger,
-			platform.Name,
-			platform.Channels,
-			checkInterval,
-			platform.Client,
-			notificationService,
-			stateStorage,
-		)
-
-		applications = append(
-			applications,
-			application,
-		)
-	}
-
-	logger.Info(
-		"Application initialized!",
-		zap.Int(
-			"Applications",
-			len(applications),
-		),
-	)
-
 	logger.Info("Creating notify context...")
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
-	defer stop()
 
+	defer stop()
 	group, ctx := errgroup.WithContext(ctx)
 
 	logger.Info("Notify context created!")
 
-	logger.Info("Running applications...")
-	for i, application := range applications {
-		application := application
-		platform := platforms[i]
-		group.Go(
-			func() error {
-				if err := application.Run(ctx); err != nil {
-					logger.Error(
-						"Application stopped",
-						zap.String("Platform", platform.Name),
-						zap.Error(err),
-					)
-					stop()
-					return err
-				}
+	logger.Info("Starting config reloader...")
+	reloader := NewConfigReloader(
+		ctx,
+		*iconPath,
+		logger,
+		stateStorage,
+		notificationService,
+	)
 
-				return nil
-			},
+	if err := reloader.start(cfg); err != nil {
+		logger.Error(
+			"Start config reloader",
+			zap.Error(err),
 		)
+		return
 	}
 
-	if config.Summary.Enable {
-		group.Go(
-			func() error {
-				runSummaryWorker(
-					ctx,
-					logger,
-					summaryInterval,
-					stateStorage,
-					notificationService,
-					*iconPath,
-				)
-				return nil
-			},
-		)
+	logger.Info("Config reloader started!")
+
+	if showStreamersAfterSetup && cfg.UI.ShowStreamers {
+		if err := tui.OpenTerminal("--tui"); err != nil {
+			logger.Error(
+				"Open streamers after setup",
+				zap.Error(err),
+			)
+		}
 	}
+
+	logger.Info("Creating config watcher...")
+	configChanges, configErrors := config.Watch(
+		ctx,
+		*configPath,
+		500*time.Millisecond,
+	)
+
+	configReloads := make(chan *config.Config, 1)
+	group.Go(
+		func() error {
+			return runConfigWatchLoop(
+				ctx,
+				logger,
+				*configPath,
+				configChanges,
+				configErrors,
+				configReloads,
+			)
+		},
+	)
 
 	if err := notificationService.Send(
 		notifier.Notification{
 			Title:   "tway",
-			Message: "Initialization completed. All services are connected and stream monitoring is active.",
+			Message: texts.StreamMonitoringReadyMessage,
 			Icon:    *iconPath,
 		},
 	); err != nil {
@@ -425,97 +329,58 @@ func main() {
 	var refreshGroup sync.WaitGroup
 
 	logger.Info("Creating tray...")
-	trayApp := tray.NewTray(
+	trayApp := createTray(
+		iconPath,
+		logPath,
 		logger,
-		func() {
-			if !refreshRunning.CompareAndSwap(false, true) {
-				logger.Info("Manual stream refresh is already running!")
-
-				if err := notificationService.Send(
-					notifier.Notification{
-						Title:   "tway",
-						Message: "Manual stream refresh is already running!",
-						Icon:    *iconPath,
-					},
-				); err != nil {
-					logger.Error(
-						"Failed to send refresh notification",
-						zap.Error(err),
-					)
-				}
-				return
-			}
-
-			refreshGroup.Add(1)
-			go func() {
-				defer refreshGroup.Done()
-				defer refreshRunning.Store(false)
-
-				logger.Info("Manual stream refresh requested...")
-
-				if err := notificationService.Send(
-					notifier.Notification{
-						Title:   "tway",
-						Message: "Processing streams status refresh started!",
-						Icon:    *iconPath,
-					},
-				); err != nil {
-					logger.Error(
-						"Failed to send refresh notification",
-						zap.Error(err),
-					)
-				}
-
-				initializeStreamStates(
-					logger,
-					platforms,
-					stateStorage,
-				)
-
-				if err := notificationService.Send(
-					notifier.Notification{
-						Title:   "tway",
-						Message: "Streams status refreshed!",
-						Icon:    *iconPath,
-					},
-				); err != nil {
-					logger.Error(
-						"Failed to send refresh notification",
-						zap.Error(err),
-					)
-				}
-
-				logger.Info("Manual stream refresh completed!")
-			}()
-		},
-		func() {
-			logger.Info("Manual show streams summary requested!")
-			processOverall(
-				*iconPath,
-				logger,
-				stateStorage,
-				notificationService,
-			)
-
-			logger.Info("Manual show streams summary completed!")
-		},
-		func() {
-			logger.Info("Tray exit event has requested!")
-			stop()
-		},
+		stop,
+		reloader,
+		&refreshRunning,
+		&refreshGroup,
+		stateStorage,
+		notificationService,
 	)
 
 	logger.Info("Tray created!")
-	trayApp.Run()
 
+	group.Go(
+		func() error {
+			return runConfigReloadLoop(
+				ctx,
+				logger,
+				configReloads,
+				reloader,
+				func(newConfig *config.Config) {
+					trayApp.SetTexts(i18n.Get(newConfig.Language))
+				},
+			)
+		},
+	)
+
+	group.Go(
+		func() error {
+			return reloader.runFatalHandler(
+				ctx,
+				logger,
+				notificationService,
+				*iconPath,
+				stop,
+				trayApp,
+			)
+		},
+	)
+
+	trayApp.Run()
 	stop()
+
 	if err := group.Wait(); err != nil {
 		logger.Error(
-			"Worker group stopped with error",
+			"Config worker group stopped with error",
 			zap.Error(err),
 		)
 	}
 
+	reloader.stop()
 	refreshGroup.Wait()
 	logger.Info("Tway stopped!")
 }

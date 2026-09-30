@@ -44,6 +44,7 @@ func (ss *StateStorage) migrate() error {
 		CREATE TABLE IF NOT EXISTS stream_states (
 			platform TEXT NOT NULL,
 			channel TEXT NOT NULL,
+			is_tracked INTEGER NOT NULL,
 			is_live INTEGER NOT NULL,
 			last_stream_at DATETIME NOT NULL,
 			started_at DATETIME NOT NULL,
@@ -81,6 +82,7 @@ func (ss *StateStorage) Get(
 		SELECT
 			platform,
 			channel,
+			is_tracked,
 			is_live,
 			last_stream_at,
 			started_at
@@ -90,11 +92,13 @@ func (ss *StateStorage) Get(
 	`, platform, channel)
 
 	var streamState StreamState
+	var isTracked int
 	var isLive int
 
 	err := row.Scan(
 		&streamState.Platform,
 		&streamState.Channel,
+		&isTracked,
 		&isLive,
 		&streamState.LastStreamAt,
 		&streamState.StartedAt,
@@ -131,11 +135,12 @@ func (ss *StateStorage) Ensure(
 		INSERT INTO stream_states (
 			platform,
 			channel,
+			is_tracked,
 			is_live,
 			last_stream_at,
 			started_at
 		)
-		VALUES (?, ?, 0, ?, ?)
+		VALUES (?, ?, 1, 0, ?, ?)
 		ON CONFLICT(platform, channel)
 		DO NOTHING
 	`,
@@ -149,6 +154,80 @@ func (ss *StateStorage) Ensure(
 	}
 
 	ss.logger.Info("Ensure state storage completed success!")
+	return nil
+}
+
+func (ss *StateStorage) SyncTracked(
+	active []StreamKey,
+) error {
+	ss.logger.Info(
+		"Sync tracked states started",
+		zap.Int("Active", len(active)),
+	)
+
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	tx, err := ss.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin sync tracked transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		UPDATE stream_states
+		SET is_tracked = 0
+	`); err != nil {
+		return fmt.Errorf("mark states untracked: %w", err)
+	}
+
+	for _, key := range active {
+		_, err := tx.Exec(`
+			INSERT INTO stream_states (
+				platform,
+				channel,
+				is_tracked,
+				is_live,
+				last_stream_at,
+				started_at
+			)
+			VALUES (?, ?, 1, 0, ?, ?)
+			ON CONFLICT(platform, channel)
+			DO UPDATE SET
+				is_tracked = 1
+		`,
+			key.Platform,
+			key.Channel,
+			time.Time{},
+			time.Time{},
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"sync tracked state %s/%s: %w",
+				key.Platform,
+				key.Channel,
+				err,
+			)
+		}
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE stream_states
+		SET
+			is_live = 0,
+			started_at = ?
+		WHERE is_tracked = 0
+	`,
+		time.Time{},
+	); err != nil {
+		return fmt.Errorf("reset untracked states: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit sync tracked transaction: %w", err)
+	}
+
+	ss.logger.Info("Sync tracked states completed success!")
 	return nil
 }
 
@@ -174,6 +253,9 @@ func (ss *StateStorage) Update(
 		state.Platform,
 		state.Channel,
 	)
+	if err != nil {
+		return fmt.Errorf("update state: %w", err)
+	}
 
 	rows, err := result.RowsAffected()
 	if err != nil {
@@ -192,6 +274,66 @@ func (ss *StateStorage) Update(
 	return nil
 }
 
+func (ss *StateStorage) GetTracked() ([]StreamState, error) {
+	ss.logger.Info("Get tracked state storage started!")
+
+	ss.mu.RLock()
+	defer ss.mu.RUnlock()
+
+	rows, err := ss.db.Query(`
+		SELECT
+			platform,
+			channel,
+			is_tracked,
+			is_live,
+			last_stream_at,
+			started_at
+		FROM stream_states
+		WHERE is_tracked = 1
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("get tracked states: %w", err)
+	}
+	defer rows.Close()
+
+	var streamStates []StreamState
+	for rows.Next() {
+		var state StreamState
+		var isTracked int
+		var isLive int
+
+		if err := rows.Scan(
+			&state.Platform,
+			&state.Channel,
+			&isTracked,
+			&isLive,
+			&state.LastStreamAt,
+			&state.StartedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan tracked state: %w", err)
+		}
+
+		state.IsTracked = isTracked == 1
+		state.IsLive = isLive == 1
+
+		streamStates = append(
+			streamStates,
+			state,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate tracked states: %w", err)
+	}
+
+	ss.logger.Info(
+		"Get tracked state storage completed success!",
+		zap.Int("States", len(streamStates)),
+	)
+
+	return streamStates, nil
+}
+
 func (ss *StateStorage) GetAll() ([]StreamState, error) {
 	ss.logger.Info("Get all state storage started!")
 	ss.mu.RLock()
@@ -201,6 +343,7 @@ func (ss *StateStorage) GetAll() ([]StreamState, error) {
 		SELECT
 			platform,
 			channel,
+			is_tracked,
 			is_live,
 			last_stream_at,
 			started_at
@@ -213,13 +356,14 @@ func (ss *StateStorage) GetAll() ([]StreamState, error) {
 
 	var streamState []StreamState
 	for rows.Next() {
-
 		var state StreamState
+		var isTracked int
 		var isLive int
 
 		if err := rows.Scan(
 			&state.Platform,
 			&state.Channel,
+			&isTracked,
 			&isLive,
 			&state.LastStreamAt,
 			&state.StartedAt,
@@ -227,6 +371,7 @@ func (ss *StateStorage) GetAll() ([]StreamState, error) {
 			return nil, fmt.Errorf("scan state: %w", err)
 		}
 
+		state.IsTracked = isTracked == 1
 		state.IsLive = isLive == 1
 		streamState = append(streamState, state)
 	}
@@ -235,7 +380,10 @@ func (ss *StateStorage) GetAll() ([]StreamState, error) {
 		return nil, fmt.Errorf("iterate states: %w", err)
 	}
 
-	ss.logger.Info("Get all state storage completed success!")
+	ss.logger.Info(
+		"Get all state storage completed success!",
+		zap.Int("States", len(streamState)),
+	)
 	return streamState, nil
 }
 

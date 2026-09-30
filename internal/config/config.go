@@ -1,22 +1,36 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
-	Check   string  `yaml:"check"`
-	Summary Summary `yaml:"summary"`
-	Twitch  Twitch  `yaml:"twitch"`
-	Kick    Kick    `yaml:"kick"`
-	Youtube Youtube `yaml:"youtube"`
-	WTV     WTV     `yaml:"wtv"`
+	Language string  `yaml:"language"`
+	Check    string  `yaml:"check"`
+	Summary  Summary `yaml:"summary"`
+	UI       UI      `yaml:"ui"`
+	Logs     Logs    `yaml:"logs"`
+	Twitch   Twitch  `yaml:"twitch"`
+	Kick     Kick    `yaml:"kick"`
+	Youtube  Youtube `yaml:"youtube"`
+	WTV      WTV     `yaml:"wtv"`
 }
 
 type Summary struct {
 	Enable   bool   `yaml:"enable"`
+	Interval string `yaml:"interval"`
+}
+
+type UI struct {
+	ShowStreamers bool `yaml:"show_streamers"`
+}
+
+type Logs struct {
 	Interval string `yaml:"interval"`
 }
 
@@ -26,6 +40,7 @@ type Proxy struct {
 }
 
 type Platform struct {
+	Enable   bool     `yaml:"enable"`
 	Proxy    Proxy    `yaml:"proxy"`
 	Channels []string `yaml:"channels"`
 }
@@ -49,21 +64,148 @@ type WTV struct {
 func LoadConfig(
 	path string,
 ) (*Config, error) {
-	config, err := os.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	settings := &Config{}
-	err = yaml.Unmarshal(config, settings)
-	if err != nil {
+	settings := Default()
+	if err := yaml.Unmarshal(
+		data,
+		settings,
+	); err != nil {
 		return nil, err
 	}
 
 	return settings, nil
 }
 
-func Get() *Config {
-	c := &Config{}
-	return c
+func SaveConfig(
+	path string,
+	config *Config,
+) error {
+	var builder strings.Builder
+
+	fmt.Fprintf(
+		&builder,
+		"language: %s\n\n",
+		strconv.Quote(config.Language),
+	)
+
+	fmt.Fprintf(
+		&builder,
+		"check: %s\n\n",
+		strconv.Quote(config.Check),
+	)
+
+	fmt.Fprintf(
+		&builder,
+		"summary:\n"+
+			"  enable: %t\n"+
+			"  interval: %s\n\n",
+		config.Summary.Enable,
+		strconv.Quote(config.Summary.Interval),
+	)
+
+	fmt.Fprintf(
+		&builder,
+		"ui:\n"+
+			"  show_streamers: %t\n\n",
+		config.UI.ShowStreamers,
+	)
+
+	fmt.Fprintf(
+		&builder,
+		"logs:\n"+
+			"  interval: %s\n\n",
+		strconv.Quote(config.Logs.Interval),
+	)
+
+	writePlatform(
+		&builder,
+		"twitch",
+		&config.Twitch.Platform,
+	)
+
+	writePlatform(
+		&builder,
+		"kick",
+		&config.Kick.Platform,
+	)
+
+	writePlatform(
+		&builder,
+		"youtube",
+		&config.Youtube.Platform,
+	)
+
+	writePlatform(
+		&builder,
+		"wtv",
+		&config.WTV.Platform,
+	)
+
+	return os.WriteFile(
+		path,
+		[]byte(builder.String()),
+		0644,
+	)
+}
+
+func writePlatform(
+	builder *strings.Builder,
+	name string,
+	platform *Platform,
+) {
+	fmt.Fprintf(
+		builder,
+		"%s:\n"+
+			"  enable: %t\n"+
+			"  proxy:\n"+
+			"    http: %s\n"+
+			"    socks: %s\n",
+		name,
+		platform.Enable,
+		strconv.Quote(platform.Proxy.HTTP),
+		strconv.Quote(platform.Proxy.Socks),
+	)
+
+	if len(platform.Channels) == 0 {
+		builder.WriteString(
+			"  channels: []\n\n",
+		)
+
+		return
+	}
+
+	builder.WriteString(
+		"  channels:\n",
+	)
+
+	for _, channel := range platform.Channels {
+		fmt.Fprintf(
+			builder,
+			"    - %s\n",
+			strconv.Quote(channel),
+		)
+	}
+
+	builder.WriteString("\n")
+}
+
+func Default() *Config {
+	return &Config{
+		Language: "en",
+		Check:    "2m",
+		Summary: Summary{
+			Enable:   false,
+			Interval: "10m",
+		},
+		UI: UI{
+			ShowStreamers: true,
+		},
+		Logs: Logs{
+			Interval: "1s",
+		},
+	}
 }

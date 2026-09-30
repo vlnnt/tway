@@ -13,7 +13,7 @@ type WindowsNotifier struct {
 	log *zap.Logger
 }
 
-func New(
+func NewNotifier(
 	log *zap.Logger,
 ) (Notifier, error) {
 	return &WindowsNotifier{log: log}, nil

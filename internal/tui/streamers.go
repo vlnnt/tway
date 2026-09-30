@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"tway/internal/client"
+	"tway/internal/i18n"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -40,13 +41,6 @@ type TUI struct {
 	application *tview.Application
 }
 
-var platforms = []string{
-	"Twitch",
-	"Kick",
-	"YouTube",
-	"W.TV",
-}
-
 var moscowLocation = time.FixedZone(
 	"MSK",
 	3*60*60,
@@ -60,13 +54,20 @@ func NewTUI() *TUI {
 
 func (u *TUI) ShowStreamers(
 	load Loader,
+	platforms []string,
+	texts i18n.Texts,
 ) error {
 	loading := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
 		SetDynamicColors(true)
 
 	loading.SetBorder(true).
-		SetTitle(" Streams ").
+		SetTitle(
+			fmt.Sprintf(
+				" %s ",
+				texts.Streams,
+			),
+		).
 		SetTitleAlign(tview.AlignCenter)
 
 	u.application.SetRoot(
@@ -78,7 +79,13 @@ func (u *TUI) ShowStreamers(
 		true,
 	)
 
-	go u.loadStreams(loading, load)
+	go u.loadStreams(
+		loading,
+		load,
+		platforms,
+		texts,
+	)
+
 	return u.application.
 		EnableMouse(true).
 		Run()
@@ -87,6 +94,8 @@ func (u *TUI) ShowStreamers(
 func (u *TUI) loadStreams(
 	loading *tview.TextView,
 	load Loader,
+	platforms []string,
+	texts i18n.Texts,
 ) {
 	frames := []string{
 		"|",
@@ -113,7 +122,8 @@ func (u *TUI) loadStreams(
 					func() {
 						loading.SetText(
 							fmt.Sprintf(
-								"\nLoading streams status %s",
+								"\n%s %s",
+								texts.Loading,
 								currentFrame,
 							),
 						)
@@ -129,7 +139,7 @@ func (u *TUI) loadStreams(
 	if err != nil {
 		u.application.QueueUpdateDraw(
 			func() {
-				errorView := buildErrorView(err)
+				errorView := buildErrorView(err, texts)
 				u.application.SetRoot(
 					centerPrimitive(
 						errorView,
@@ -148,6 +158,8 @@ func (u *TUI) loadStreams(
 		u.application,
 		states,
 		load,
+		platforms,
+		texts,
 	)
 
 	u.application.QueueUpdateDraw(
@@ -164,8 +176,50 @@ func buildStreamsView(
 	application *tview.Application,
 	states []*client.Stream,
 	load Loader,
+	platforms []string,
+	texts i18n.Texts,
 ) tview.Primitive {
 	activePlatform := 0
+	if len(platforms) == 0 {
+		empty := tview.NewTextView()
+		empty.SetTextAlign(tview.AlignCenter)
+		empty.SetText(
+			fmt.Sprintf(
+				"\n%s\n\n%s",
+				texts.NoPlatforms,
+				texts.EnablePlatformInSettings,
+			),
+		)
+
+		empty.SetBorder(true).
+			SetTitle(
+				fmt.Sprintf(
+					" %s ",
+					texts.Streams,
+				),
+			).
+			SetTitleAlign(tview.AlignCenter)
+
+		empty.SetInputCapture(
+			func(event *tcell.EventKey) *tcell.EventKey {
+				switch event.Key() {
+				case tcell.KeyEscape:
+					application.Stop()
+					return nil
+				}
+
+				switch event.Rune() {
+				case 'q', 'Q', 'й', 'Й':
+					application.Stop()
+					return nil
+				}
+
+				return event
+			},
+		)
+
+		return empty
+	}
 
 	table := tview.NewTable().
 		SetBorders(true).
@@ -176,7 +230,12 @@ func buildStreamsView(
 		SetSelectable(false, false)
 
 	platformMenu.SetBorder(true).
-		SetTitle(" Platforms ").
+		SetTitle(
+			fmt.Sprintf(
+				" %s ",
+				texts.Platforms,
+			),
+		).
 		SetTitleAlign(tview.AlignCenter)
 
 	statusBar := tview.NewTextView().
@@ -192,10 +251,12 @@ func buildStreamsView(
 			table,
 			filteredStates,
 			platform,
+			texts,
 		)
 
 		updatePlatformMenu(
 			platformMenu,
+			platforms,
 			activePlatform,
 			func(index int) {
 				activePlatform = index
@@ -206,6 +267,7 @@ func buildStreamsView(
 		updateStatusBar(
 			statusBar,
 			filteredStates,
+			texts,
 		)
 	}
 
@@ -287,19 +349,23 @@ func updateTable(
 	table *tview.Table,
 	states []*client.Stream,
 	platform string,
+	texts i18n.Texts,
 ) {
 	table.Clear()
 	table.SetTitle(
 		fmt.Sprintf(
-			" %s Streams ",
-			platform,
+			" %s ",
+			fmt.Sprintf(
+				texts.PlatformStreams,
+				platform,
+			),
 		),
 	)
 
 	table.SetCell(
 		tableHeaderRow,
 		streamerColumn,
-		tview.NewTableCell("Streamer").
+		tview.NewTableCell(texts.Streamer).
 			SetAlign(tview.AlignCenter).
 			SetExpansion(columnExpansion).
 			SetAttributes(tcell.AttrBold),
@@ -308,7 +374,7 @@ func updateTable(
 	table.SetCell(
 		tableHeaderRow,
 		statusColumn,
-		tview.NewTableCell("Status").
+		tview.NewTableCell(texts.Status).
 			SetAlign(tview.AlignCenter).
 			SetExpansion(columnExpansion).
 			SetAttributes(tcell.AttrBold),
@@ -317,7 +383,7 @@ func updateTable(
 	table.SetCell(
 		tableHeaderRow,
 		lastStreamColumn,
-		tview.NewTableCell("Last Stream").
+		tview.NewTableCell(texts.LastStream).
 			SetAlign(tview.AlignCenter).
 			SetExpansion(columnExpansion).
 			SetAttributes(tcell.AttrBold),
@@ -326,7 +392,7 @@ func updateTable(
 	table.SetCell(
 		tableHeaderRow,
 		liveForColumn,
-		tview.NewTableCell("Live For").
+		tview.NewTableCell(texts.LiveFor).
 			SetAlign(tview.AlignCenter).
 			SetExpansion(columnExpansion).
 			SetAttributes(tcell.AttrBold),
@@ -338,11 +404,11 @@ func updateTable(
 			continue
 		}
 
-		status := "OFFLINE"
+		status := texts.Offline
 		statusColor := tcell.ColorRed
 
 		if state.IsLive {
-			status = "LIVE"
+			status = texts.Live
 			statusColor = tcell.ColorGreen
 		}
 
@@ -355,7 +421,7 @@ func updateTable(
 
 		liveFor := "-"
 		if state.IsLive && !state.StartedAt.IsZero() {
-			liveFor = formatLiveFor(state.StartedAt)
+			liveFor = formatLiveFor(state.StartedAt, texts)
 		}
 
 		url := state.URL
@@ -416,6 +482,7 @@ func updateTable(
 func updateStatusBar(
 	statusBar *tview.TextView,
 	states []*client.Stream,
+	texts i18n.Texts,
 ) {
 	liveCount := 0
 	for _, state := range states {
@@ -426,7 +493,7 @@ func updateStatusBar(
 
 	statusBar.SetText(
 		fmt.Sprintf(
-			"Live: %d / %d | Tab/Shift+Tab: platform | Q/Esc: quit",
+			texts.StreamsStatusBar,
 			liveCount,
 			len(states),
 		),
@@ -435,6 +502,7 @@ func updateStatusBar(
 
 func formatLiveFor(
 	startedAt time.Time,
+	texts i18n.Texts,
 ) string {
 	duration := time.Since(startedAt)
 	if duration < 0 {
@@ -444,8 +512,9 @@ func formatLiveFor(
 	totalMinutes := int(duration / time.Minute)
 	if totalMinutes < 60 {
 		return fmt.Sprintf(
-			"%dm",
+			"%d%s",
 			totalMinutes,
+			texts.MinuteShort,
 		)
 	}
 
@@ -453,14 +522,17 @@ func formatLiveFor(
 	minutes := totalMinutes % 60
 
 	return fmt.Sprintf(
-		"%dh %dm",
+		"%d%s %d%s",
 		hours,
+		texts.HourShort,
 		minutes,
+		texts.MinuteShort,
 	)
 }
 
 func updatePlatformMenu(
 	menu *tview.Table,
+	platforms []string,
 	activePlatform int,
 	onSelect func(int),
 ) {
@@ -585,18 +657,25 @@ func centerPrimitive(
 
 func buildErrorView(
 	err error,
+	texts i18n.Texts,
 ) *tview.TextView {
 	view := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
 		SetDynamicColors(true)
 
 	view.SetBorder(true).
-		SetTitle(" Error ").
+		SetTitle(
+			fmt.Sprintf(
+				" %s ",
+				texts.Error,
+			),
+		).
 		SetTitleAlign(tview.AlignCenter)
 
 	view.SetText(
 		fmt.Sprintf(
-			"\n[red]Failed to load streams status[-]\n\n%s",
+			"\n[red]%s[-]\n\n%s",
+			texts.FailedToLoadStreams,
 			err.Error(),
 		),
 	)

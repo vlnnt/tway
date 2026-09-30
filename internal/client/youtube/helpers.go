@@ -325,16 +325,9 @@ func (c *Client) resolveLiveVideoID(
 }
 
 func (c *Client) getLastStream(
-	channel string,
+	channel,
+	channelID string,
 ) (*client.Stream, error) {
-	channelID, err := c.resolveChannelID(channel)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"resolve YouTube channel ID: %w",
-			err,
-		)
-	}
-
 	requestBody := browseRequest{
 		Context: innertubeContext{
 			Client: innertubeClient{
@@ -407,7 +400,10 @@ func (c *Client) getLastStream(
 		)
 	}
 
-	videoIDs, err := findVideoIDsInOrder(response.Body())
+	videoIDs, err := findVideoIDsInOrder(
+		response.Body(),
+		maxLastStreamCandidates,
+	)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"find YouTube stream video IDs: %w",
@@ -424,20 +420,14 @@ func (c *Client) getLastStream(
 		return nil, nil
 	}
 
-	limit := len(videoIDs)
-	if limit > maxLastStreamCandidates {
-		limit = maxLastStreamCandidates
-	}
-
 	c.log.Info(
 		"YouTube stream candidates found",
 		zap.String("Channel", channel),
-		zap.Int("Candidates", len(videoIDs)),
-		zap.Int("Checking", limit),
+		zap.Int("Checking", len(videoIDs)),
 	)
 
 	now := time.Now()
-	for _, videoID := range videoIDs[:limit] {
+	for _, videoID := range videoIDs {
 		stream, err := c.getPlayerStream(
 			channel,
 			videoID,
@@ -481,7 +471,7 @@ func (c *Client) getLastStream(
 	c.log.Info(
 		"No valid YouTube stream found among candidates",
 		zap.String("Channel", channel),
-		zap.Int("Checked", limit),
+		zap.Int("Checked", len(videoIDs)),
 	)
 
 	return nil, nil
@@ -489,20 +479,25 @@ func (c *Client) getLastStream(
 
 func findVideoIDsInOrder(
 	body []byte,
+	limit int,
 ) ([]string, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
 	decoder := json.NewDecoder(bytes.NewReader(body))
+	videoIDs := make([]string, 0, limit)
+	seen := make(map[string]struct{}, limit)
 
-	videoIDs := make([]string, 0)
-	seen := make(map[string]struct{})
-
-	addVideoID := func(videoID string) {
-
+	addVideoID := func(
+		videoID string,
+	) bool {
 		if videoID == "" {
-			return
+			return false
 		}
 
 		if _, exists := seen[videoID]; exists {
-			return
+			return false
 		}
 
 		seen[videoID] = struct{}{}
@@ -510,19 +505,20 @@ func findVideoIDsInOrder(
 			videoIDs,
 			videoID,
 		)
+
+		return len(videoIDs) >= limit
 	}
 
-	var walk func() error
-	walk = func() error {
-
+	var walk func() (bool, error)
+	walk = func() (bool, error) {
 		token, err := decoder.Token()
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		delim, ok := token.(json.Delim)
 		if !ok {
-			return nil
+			return false, nil
 		}
 
 		switch delim {
@@ -530,12 +526,12 @@ func findVideoIDsInOrder(
 			for decoder.More() {
 				keyToken, err := decoder.Token()
 				if err != nil {
-					return err
+					return false, err
 				}
 
 				key, ok := keyToken.(string)
 				if !ok {
-					return fmt.Errorf("unexpected JSON object key")
+					return false, fmt.Errorf("unexpected JSON object key")
 				}
 
 				switch key {
@@ -543,16 +539,18 @@ func findVideoIDsInOrder(
 					"gridVideoRenderer",
 					"playlistVideoRenderer",
 					"compactVideoRenderer":
+
 					var renderer struct {
 						VideoID string `json:"videoId"`
 					}
 
 					if err := decoder.Decode(&renderer); err != nil {
-						return err
+						return false, err
 					}
 
-					addVideoID(renderer.VideoID)
-					continue
+					if addVideoID(renderer.VideoID) {
+						return true, nil
+					}
 
 				case "lockupViewModel":
 					var viewModel struct {
@@ -561,40 +559,53 @@ func findVideoIDsInOrder(
 					}
 
 					if err := decoder.Decode(&viewModel); err != nil {
-						return err
+						return false, err
 					}
 
-					if viewModel.ContentType ==
+					if viewModel.ContentType !=
 						"LOCKUP_CONTENT_TYPE_VIDEO" {
-						addVideoID(viewModel.ContentID)
+						continue
 					}
 
-					continue
-				}
+					if addVideoID(viewModel.ContentID) {
+						return true, nil
+					}
 
-				if err := walk(); err != nil {
-					return err
+				default:
+					done, err := walk()
+					if err != nil {
+						return false, err
+					}
+
+					if done {
+						return true, nil
+					}
 				}
 			}
 
 			_, err := decoder.Token()
-			return err
+			return false, err
 
 		case '[':
 			for decoder.More() {
-				if err := walk(); err != nil {
-					return err
+				done, err := walk()
+				if err != nil {
+					return false, nil
+				}
+
+				if done {
+					return true, nil
 				}
 			}
 
 			_, err := decoder.Token()
-			return err
+			return false, err
 		}
 
-		return nil
+		return false, nil
 	}
 
-	if err := walk(); err != nil {
+	if _, err := walk(); err != nil {
 		return nil, fmt.Errorf(
 			"decode YouTube browse response: %w",
 			err,

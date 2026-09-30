@@ -20,7 +20,7 @@ type LinuxNotifier struct {
 	urls map[uint32]string
 }
 
-func New(
+func NewNotifier(
 	log *zap.Logger,
 ) (Notifier, error) {
 	conn, err := dbus.ConnectSessionBus()

@@ -1,9 +1,19 @@
+language: "en"
+
 check: "2m"
+
 summary:
   enable: true
   interval: "10m"
+  
+ui:
+  show_streamers: true
+
+logs:
+  interval: "10s"
 
 twitch:
+  enable: true
   proxy:
     http: ""
     socks: ""
@@ -11,6 +21,7 @@ twitch:
     - "forsen"
 
 kick:
+  enable: true
   proxy:
     http: ""
     socks: ""
@@ -18,6 +29,7 @@ kick:
     - "forsen"
 
 youtube:
+  enable: true
   proxy:
     http: "127.0.0.1:10808"
     socks: ""
@@ -25,6 +37,7 @@ youtube:
     - "forsen"
 
 wtv:
+  enable: true
   proxy:
     http: ""
     socks: ""
