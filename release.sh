@@ -34,10 +34,8 @@ go build \
 
 echo "==> Copying config and icon..."
 
-cp config/tway.yaml "$LINUX_DIR/"
 cp assets/tway.ico "$LINUX_DIR/"
 
-cp config/tway.yaml "$WINDOWS_DIR/"
 cp assets/tway.ico "$WINDOWS_DIR/"
 
 echo "==> Creating Linux archive..."

@@ -692,13 +692,21 @@ func normalizeChannelInput(
 		return ""
 	}
 
+	if strings.EqualFold(platformName, "youtube") &&
+		strings.HasPrefix(value, "@") {
+		return strings.TrimPrefix(value, "@")
+	}
+
 	rawURL := value
 	if !strings.Contains(rawURL, "://") {
 		switch {
 		case strings.Contains(rawURL, "twitch.tv/"),
+			strings.Contains(rawURL, "m.twitch.tv/"),
 			strings.Contains(rawURL, "kick.com/"),
 			strings.Contains(rawURL, "youtube.com/"),
-			strings.Contains(rawURL, "youtu.be/"),
+			strings.Contains(rawURL, "youtube.com/@"),
+			strings.Contains(rawURL, "m.youtube.com/"),
+			strings.Contains(rawURL, "m.youtube.com/@"),
 			strings.Contains(rawURL, "w.tv/"):
 			rawURL = "https://" + rawURL
 
@@ -727,7 +735,8 @@ func normalizeChannelInput(
 	parts := strings.Split(path, "/")
 	switch strings.ToLower(platformName) {
 	case "twitch":
-		if host != "twitch.tv" {
+		if host != "twitch.tv" &&
+			host != "m.twitch.tv" {
 			return value
 		}
 
@@ -747,7 +756,7 @@ func normalizeChannelInput(
 		}
 
 		if strings.HasPrefix(parts[0], "@") {
-			return parts[0]
+			return strings.TrimPrefix(parts[0], "@")
 		}
 
 		if len(parts) >= 2 {
