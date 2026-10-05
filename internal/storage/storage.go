@@ -112,7 +112,9 @@ func (ss *StateStorage) Get(
 		return nil, fmt.Errorf("get state: %w", err)
 	}
 
+	streamState.IsTracked = isTracked == 1
 	streamState.IsLive = isLive == 1
+
 	ss.logger.Info("Get state storage completed success",
 		zap.Any("Stream state", streamState),
 	)
@@ -241,13 +243,17 @@ func (ss *StateStorage) Update(
 
 	result, err := ss.db.Exec(`
 		UPDATE stream_states
-		SET
-			is_live = ?,
-			last_stream_at = ?,
-			started_at = ?
-		WHERE platform = ?
-			AND channel = ?`,
+			SET
+				is_live = ?,
+				last_stream_at = CASE
+					WHEN ? = 1 THEN last_stream_at
+					ELSE ?
+				END,
+				started_at = ?
+			WHERE platform = ?
+				AND channel = ?`,
 		boolToInt(state.IsLive),
+		boolToInt(state.LastStreamAt.IsZero()),
 		state.LastStreamAt,
 		state.StartedAt,
 		state.Platform,

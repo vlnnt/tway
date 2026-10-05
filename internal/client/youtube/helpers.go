@@ -211,6 +211,14 @@ func (c *Client) resolveChannelID(
 		zap.Int("Status code", response.StatusCode()),
 	)
 
+	if response.StatusCode() == fasthttp.StatusNotFound {
+		return "", fmt.Errorf(
+			"%w: %s",
+			ErrChannelNotFound,
+			channel,
+		)
+	}
+
 	if response.StatusCode() != fasthttp.StatusOK {
 		c.log.Warn(
 			"YouTube channel resolve endpoint returned an unexpected response",
@@ -234,7 +242,11 @@ func (c *Client) resolveChannelID(
 
 	channelID = resolveResponse.Endpoint.BrowseEndpoint.BrowseID
 	if channelID == "" {
-		return "", fmt.Errorf("YouTube channel %q not found", channel)
+		return "", fmt.Errorf(
+			"%w: %s",
+			ErrChannelNotFound,
+			channel,
+		)
 	}
 
 	c.channelIDsMu.Lock()
@@ -299,6 +311,10 @@ func (c *Client) resolveLiveVideoID(
 		"YouTube resolve response received",
 		zap.Int("Status code", response.StatusCode()),
 	)
+
+	if response.StatusCode() == fasthttp.StatusNotFound {
+		return "", ErrChannelNotFound
+	}
 
 	if response.StatusCode() != fasthttp.StatusOK {
 		c.log.Warn(

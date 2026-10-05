@@ -1,5 +1,9 @@
 package youtube
 
+import "errors"
+
+var ErrChannelNotFound = errors.New("YouTube channel not found")
+
 const (
 	maxAttempts             = 3
 	maxLastStreamCandidates = 3

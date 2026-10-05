@@ -2,6 +2,7 @@ package wtv
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -117,26 +118,38 @@ func (c *Client) getStream(
 		zap.String("Channel", channel),
 	)
 
-	userID, err := c.resolveUserID(channel)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"resolve W.TV user ID: %w",
-			err,
-		)
-	}
-
-	data, err := c.getChannel(userID)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"get W.TV channel: %w",
-			err,
-		)
-	}
-
 	streamResult := &client.Stream{
 		Channel: channel,
 		URL:     baseUrl + channel,
 		IsLive:  false,
+	}
+
+	userID, err := c.resolveUserID(channel)
+	if err != nil {
+		if errors.Is(err, ErrChannelNotFound) {
+			c.log.Warn(
+				"W.TV channel is unavailable, treating as offline",
+				zap.String("Channel", channel),
+			)
+
+			return streamResult, nil
+		}
+
+		return nil, fmt.Errorf("resolve W.TV user ID: %w", err)
+	}
+
+	data, err := c.getChannel(userID)
+	if err != nil {
+		if errors.Is(err, ErrChannelNotFound) {
+			c.log.Warn(
+				"W.TV channel is unavailable, treating as offline",
+				zap.String("Channel", channel),
+			)
+
+			return streamResult, nil
+		}
+
+		return nil, fmt.Errorf("get W.TV channel: %w", err)
 	}
 
 	lastStreamTimestamp, err := c.getLastStreamTimestamp(channel)

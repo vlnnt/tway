@@ -1,6 +1,7 @@
 package youtube
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -115,21 +116,44 @@ func (c *Client) getStream(
 		zap.String("Channel", channel),
 	)
 
+	streamResult := &client.Stream{
+		Channel: channel,
+		URL:     baseUrl + channel,
+		IsLive:  false,
+	}
+
 	channelID, err := c.resolveChannelID(channel)
 	if err != nil {
+		if errors.Is(err, ErrChannelNotFound) {
+			c.log.Warn(
+				"YouTube channel is unavailable, treating as offline",
+				zap.String("Channel", channel),
+			)
+
+			return streamResult, nil
+		}
+
 		return nil, fmt.Errorf(
 			"resolve YouTube channel ID: %w",
 			err,
 		)
 	}
 
-	streamResult := &client.Stream{
-		Channel: channel,
-		URL:     baseUrl + channel,
-	}
-
 	videoID, err := c.resolveLiveVideoID(channelID)
 	if err != nil {
+		if errors.Is(err, ErrChannelNotFound) {
+			c.log.Warn(
+				"YouTube channel is unavailable, treating as offline",
+				zap.String("Channel", channel),
+			)
+
+			c.channelIDsMu.Lock()
+			delete(c.channelIDs, channel)
+			c.channelIDsMu.Unlock()
+
+			return streamResult, nil
+		}
+
 		return nil, fmt.Errorf(
 			"resolve YouTube live video: %w",
 			err,

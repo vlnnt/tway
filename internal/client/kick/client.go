@@ -143,6 +143,21 @@ func (c *Client) getStream(
 		zap.Int("Status code", response.StatusCode()),
 	)
 
+	streamResult := &client.Stream{
+		Channel: channel,
+		URL:     kickBaseUrl + channel,
+		IsLive:  false,
+	}
+
+	if response.StatusCode() == fasthttp.StatusNotFound {
+		c.log.Warn(
+			"Kick channel is unavailable, treating as offline",
+			zap.String("Channel", channel),
+		)
+
+		return streamResult, nil
+	}
+
 	if response.StatusCode() != fasthttp.StatusOK {
 		c.log.Warn(
 			"Kick returned an unexpected response",
@@ -168,12 +183,7 @@ func (c *Client) getStream(
 		)
 	}
 
-	streamResult := &client.Stream{
-		Channel: channel,
-		URL:     kickBaseUrl + channel,
-		IsLive:  channelResponse.Livestream != nil,
-	}
-
+	streamResult.IsLive = channelResponse.Livestream != nil
 	lastStreamTimestamp, err := c.getLastStreamTimestamp(channel)
 	if err != nil {
 		c.log.Warn(

@@ -1,5 +1,9 @@
 package wtv
 
+import "errors"
+
+var ErrChannelNotFound = errors.New("W.TV channel not found")
+
 const (
 	maxAttempts = 3
 	userParam   = "?user_lang=en&platform=web"

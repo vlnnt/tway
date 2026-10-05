@@ -195,17 +195,19 @@ func (c *Client) getStream(
 		)
 	}
 
-	if metadataResponse.Data.User == nil {
-		return nil, fmt.Errorf(
-			"Twitch channel %q not found",
-			channel,
-		)
-	}
-
 	streamResult := &client.Stream{
 		Channel: channel,
 		URL:     baseUrl + channel,
 		IsLive:  false,
+	}
+
+	if metadataResponse.Data.User == nil {
+		c.log.Warn(
+			"Twitch channel is unavailable, treating as offline",
+			zap.String("Channel", channel),
+		)
+
+		return streamResult, nil
 	}
 
 	lastStreamTimestamp, err := c.getLastStreamTimestamp(channel)
