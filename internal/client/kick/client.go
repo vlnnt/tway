@@ -166,7 +166,7 @@ func (c *Client) getStream(
 		)
 
 		return nil, fmt.Errorf(
-			"Kick returned status %d: %s",
+			"kick returned status %d: %s",
 			response.StatusCode(),
 			string(response.Body()),
 		)

@@ -40,7 +40,7 @@ func acquireInstanceLock(
 				)
 			}
 
-			notificationService.Close()
+			defer notificationService.Close()
 			return nil, true
 		}
 

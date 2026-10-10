@@ -31,7 +31,7 @@ func NewStateStorage(
 	}
 
 	if err := storage.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
@@ -174,7 +174,9 @@ func (ss *StateStorage) SyncTracked(
 	if err != nil {
 		return fmt.Errorf("begin sync tracked transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	if _, err := tx.Exec(`
 		UPDATE stream_states
@@ -300,7 +302,9 @@ func (ss *StateStorage) GetTracked() ([]StreamState, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get tracked states: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var streamStates []StreamState
 	for rows.Next() {
@@ -358,7 +362,9 @@ func (ss *StateStorage) GetAll() ([]StreamState, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get all states: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var streamState []StreamState
 	for rows.Next() {

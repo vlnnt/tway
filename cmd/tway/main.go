@@ -109,7 +109,9 @@ func main() {
 			return
 		}
 
-		defer logger.Sync()
+		defer func() {
+			_ = logger.Sync()
+		}()
 	}
 
 	if logPath != "" {
@@ -214,7 +216,10 @@ func main() {
 		)
 		return
 	}
-	defer stateStorage.Close()
+	defer func() {
+		_ = stateStorage.Close()
+	}()
+
 	logger.Info("State storage initialized!")
 
 	if *tuiMode {
@@ -235,7 +240,9 @@ func main() {
 		)
 		return
 	}
-	defer notificationService.Close()
+	defer func() {
+		_ = notificationService.Close()
+	}()
 
 	logger.Info("Notifier service initialized!")
 
