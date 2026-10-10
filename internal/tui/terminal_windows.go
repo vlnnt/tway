@@ -7,6 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 func OpenTerminal(
@@ -63,6 +66,11 @@ func StartDetached(
 		exePath,
 		args...,
 	)
+
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: windows.DETACHED_PROCESS |
+			windows.CREATE_NEW_PROCESS_GROUP,
+	}
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf(

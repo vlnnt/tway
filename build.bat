@@ -5,8 +5,8 @@ cd /d "%~dp0"
 
 echo Building Tway for Windows...
 
-if not exist "tway" (
-    mkdir "tway"
+if not exist "tway-windows" (
+    mkdir "tway-windows"
 )
 
 set GOOS=windows
@@ -15,7 +15,7 @@ set GOARCH=amd64
 go build ^
     -trimpath ^
     -ldflags="-H windowsgui -s -w" ^
-    -o "tway\tway.exe" ^
+    -o "tway-windows\tway.exe" ^
     ./cmd/tway
 
 if errorlevel 1 (
@@ -24,7 +24,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-copy /Y "assets\tway.ico" "tway\tway.ico" >nul
+copy /Y "assets\tway.ico" "tway-windows\tway.ico" >nul
 
 if errorlevel 1 (
     echo.
@@ -34,7 +34,7 @@ if errorlevel 1 (
 
 echo.
 echo Build completed:
-echo   tway\tway.exe
-echo   tway\tway.ico
+echo   tway-windows\tway.exe
+echo   tway-windows\tway.ico
 
 endlocal

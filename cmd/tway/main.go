@@ -80,6 +80,10 @@ func main() {
 	)
 
 	if *logsMode {
+		if err := tui.AttachConsole(); err != nil {
+			return
+		}
+
 		logPath, err := logging.Path()
 		if err != nil {
 			return
@@ -91,9 +95,7 @@ func main() {
 		}
 
 		texts := i18n.Get(i18n.English)
-		if err := tui.RunLogs(
-			logPath, *configPath, texts, cfg,
-		); err != nil {
+		if err := tui.RunLogs(logPath, *configPath, texts, cfg); err != nil {
 			return
 		}
 		return
