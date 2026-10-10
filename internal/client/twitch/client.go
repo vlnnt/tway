@@ -174,7 +174,7 @@ func (c *Client) getStream(
 		)
 
 		return nil, fmt.Errorf(
-			"Twitch returned status %d: %s",
+			"twitch returned status %d: %s",
 			response.StatusCode(),
 			string(response.Body()),
 		)
@@ -190,7 +190,7 @@ func (c *Client) getStream(
 
 	if len(metadataResponse.Errors) > 0 {
 		return nil, fmt.Errorf(
-			"Twitch GraphQL error: %s",
+			"twitch GraphQL error: %s",
 			metadataResponse.Errors[0].Message,
 		)
 	}
@@ -348,7 +348,7 @@ func (c *Client) getLastStreamTimestamp(
 		)
 
 		return "", fmt.Errorf(
-			"Twitch returned status %d: %s",
+			"twitch returned status %d: %s",
 			response.StatusCode(),
 			string(response.Body()),
 		)

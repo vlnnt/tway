@@ -295,7 +295,7 @@ func (c *Client) getLastStreamTimestamp(
 		)
 
 		return "", fmt.Errorf(
-			"Kick returned status %d: %s",
+			"kick returned status %d: %s",
 			response.StatusCode(),
 			string(response.Body()),
 		)
