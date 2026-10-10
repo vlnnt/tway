@@ -1,0 +1,198 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate tag
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+
+          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $TAG"
+            echo "Expected format: X.Y.Z"
+            exit 1
+          fi
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+
+  build-linux:
+    name: Build Linux
+    needs: lint
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev
+
+      - name: Build
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Package
+        run: |
+          tar -czf tway-linux-amd64.tar.gz -C tway-linux .
+
+      - name: Upload Linux build
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux
+          path: tway-linux-amd64.tar.gz
+          retention-days: 1
+          archive: false
+
+  build-windows:
+    name: Build Windows
+    needs: lint
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Build
+        shell: cmd
+        run: build.bat
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path "tway-windows\*" `
+            -DestinationPath "tway-windows-amd64.zip" `
+            -Force
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-windows
+          path: tway-windows-amd64.zip
+          retention-days: 1
+          archive: false
+
+  publish:
+    name: Publish Release
+
+    needs:
+      - build-linux
+      - build-windows
+
+    runs-on: ubuntu-24.04
+
+    environment:
+      name: release
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download Linux build
+        uses: actions/download-artifact@v8
+        with:
+          name: release-linux
+          path: dist
+
+      - name: Download Windows build
+        uses: actions/download-artifact@v8
+        with:
+          name: release-windows
+          path: dist
+
+      - name: Find previous tag
+        id: previous-tag
+        shell: bash
+        run: |
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+
+          PREVIOUS_TAG="$(
+            git describe \
+              --tags \
+              --abbrev=0 \
+              "${CURRENT_TAG}^" \
+              2>/dev/null || true
+          )"
+
+          echo "Current tag: $CURRENT_TAG"
+          echo "Previous tag: $PREVIOUS_TAG"
+
+          echo "tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_TAG: ${{ steps.previous-tag.outputs.tag }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+
+          if [ -n "$PREVIOUS_TAG" ]; then
+            gh release create "$TAG" \
+              dist/tway-linux-amd64.tar.gz \
+              dist/tway-windows-amd64.zip \
+              --verify-tag \
+              --title "$TAG" \
+              --generate-notes \
+              --notes-start-tag "$PREVIOUS_TAG"
+          else
+            gh release create "$TAG" \
+              dist/tway-linux-amd64.tar.gz \
+              dist/tway-windows-amd64.zip \
+              --verify-tag \
+              --title "$TAG" \
+              --generate-notes
+          fi
