@@ -6,17 +6,17 @@ cd "$(dirname "$0")"
 
 echo "Building Tway for Linux..."
 
-mkdir -p tway
+mkdir -p tway-linux
 
 GOOS=linux GOARCH=amd64 go build \
     -trimpath \
     -ldflags="-s -w" \
-    -o tway/tway \
+    -o tway-linux/tway \
     ./cmd/tway
 
-cp -f assets/tway.ico tway/tway.ico
+cp -f assets/tway.ico tway-linux/tway.ico
 
 echo
 echo "Build completed:"
-echo "  tway/tway"
-echo "  tway/tway.ico"
+echo "  tway-linux/tway"
+echo "  tway-linux/tway.ico"

@@ -80,6 +80,10 @@ func main() {
 	)
 
 	if *logsMode {
+		if err := tui.AttachConsole(); err != nil {
+			return
+		}
+
 		logPath, err := logging.Path()
 		if err != nil {
 			return
@@ -91,9 +95,7 @@ func main() {
 		}
 
 		texts := i18n.Get(i18n.English)
-		if err := tui.RunLogs(
-			logPath, *configPath, texts, cfg,
-		); err != nil {
+		if err := tui.RunLogs(logPath, *configPath, texts, cfg); err != nil {
 			return
 		}
 		return
@@ -107,7 +109,9 @@ func main() {
 			return
 		}
 
-		defer logger.Sync()
+		defer func() {
+			_ = logger.Sync()
+		}()
 	}
 
 	if logPath != "" {
@@ -212,7 +216,10 @@ func main() {
 		)
 		return
 	}
-	defer stateStorage.Close()
+	defer func() {
+		_ = stateStorage.Close()
+	}()
+
 	logger.Info("State storage initialized!")
 
 	if *tuiMode {
@@ -233,7 +240,9 @@ func main() {
 		)
 		return
 	}
-	defer notificationService.Close()
+	defer func() {
+		_ = notificationService.Close()
+	}()
 
 	logger.Info("Notifier service initialized!")
 

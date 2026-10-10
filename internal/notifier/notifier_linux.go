@@ -37,9 +37,18 @@ func NewNotifier(
 	}
 
 	if err := n.setupActionHandler(); err != nil {
-		conn.Close()
+		if closeErr := conn.Close(); closeErr != nil {
+			log.Error(
+				"LinuxNotifier.New.Close",
+				zap.Error(closeErr),
+			)
+		}
+
 		log.Error(
-			"LinuxNotifier.New.setupActionHandler", zap.Error(err))
+			"LinuxNotifier.New.setupActionHandler",
+			zap.Error(err),
+		)
+
 		return nil, err
 	}
 
