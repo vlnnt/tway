@@ -80,7 +80,6 @@ jobs:
       - name: Upload Linux build
         uses: actions/upload-artifact@v7
         with:
-          name: release-linux
           path: tway-linux-amd64.tar.gz
           retention-days: 1
           archive: false
@@ -115,7 +114,6 @@ jobs:
       - name: Upload Windows build
         uses: actions/upload-artifact@v7
         with:
-          name: release-windows
           path: tway-windows-amd64.zip
           retention-days: 1
           archive: false
@@ -144,13 +142,13 @@ jobs:
       - name: Download Linux build
         uses: actions/download-artifact@v8
         with:
-          name: release-linux
+          name: tway-linux-amd64.tar.gz
           path: dist
 
       - name: Download Windows build
         uses: actions/download-artifact@v8
         with:
-          name: release-windows
+          name: tway-windows-amd64.zip
           path: dist
 
       - name: Find previous tag
